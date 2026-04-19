@@ -73,7 +73,7 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
     align: "right",
   });
   if (data.inspectors.length) {
-    title.addText(`المفتشون: ${data.inspectors.join("، ")}`, {
+    title.addText(`فريق الجولة: ${data.inspectors.join("، ")}`, {
       x: 0.4,
       y: logoB64 ? 3.35 : 2.95,
       w: 9.2,

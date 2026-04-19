@@ -1,16 +1,13 @@
 import pptxgen from "pptxgenjs";
+import { MHC_LOGO_PATH } from "./branding";
 import { InspectionData } from "./types";
 import {
   calculateGlobalMetrics,
-  flattenQuestionSlides,
+  calculateSectionMetrics,
   getActiveSections,
   safeExportBase,
 } from "./inspection-utils";
-
-function dataUrlToBase64(src: string): string {
-  const i = src.indexOf(",");
-  return i >= 0 ? src.slice(i + 1) : src;
-}
+import { dataUrlToPptxBase64, fetchPublicImageAsPptxBase64 } from "./export-helpers";
 
 function scoreLabel(data: InspectionData, qid: string): string {
   const s = data.scores[qid];
@@ -23,16 +20,27 @@ function scoreLabel(data: InspectionData, qid: string): string {
 export async function downloadInspectionPptx(data: InspectionData): Promise<void> {
   const pptx = new pptxgen();
   pptx.layout = "LAYOUT_16x9";
+  pptx.rtlMode = true;
   pptx.author = "الإدارة التنفيذية للطب الوقائي";
 
   const metrics = calculateGlobalMetrics(data);
-  const slides = flattenQuestionSlides(data);
+  const sections = getActiveSections(data);
+  const logoB64 = await fetchPublicImageAsPptxBase64(MHC_LOGO_PATH);
 
   const title = pptx.addSlide();
   title.background = { color: "FAFAFA" };
+  if (logoB64) {
+    title.addImage({
+      data: logoB64,
+      x: 6.85,
+      y: 0.32,
+      w: 2.75,
+      h: 0.85,
+    });
+  }
   title.addText("جولة إشرافية — موسم الحج 1447هـ", {
     x: 0.4,
-    y: 0.35,
+    y: logoB64 ? 1.15 : 0.35,
     w: 9.2,
     h: 0.45,
     fontSize: 12,
@@ -41,19 +49,19 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
   });
   title.addText(data.hospital || "—", {
     x: 0.4,
-    y: 1,
+    y: logoB64 ? 1.65 : 1,
     w: 9.2,
-    h: 1.2,
-    fontSize: 32,
+    h: 1.05,
+    fontSize: 30,
     bold: true,
     color: "171717",
     align: "right",
   });
   title.addText(`التاريخ: ${data.date}   •   الامتثال: ${metrics.percentage}%`, {
     x: 0.4,
-    y: 2.35,
+    y: logoB64 ? 2.85 : 2.35,
     w: 9.2,
-    h: 0.5,
+    h: 0.45,
     fontSize: 14,
     color: "404040",
     align: "right",
@@ -61,74 +69,97 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
   if (data.inspectors.length) {
     title.addText(`المفتشون: ${data.inspectors.join("، ")}`, {
       x: 0.4,
-      y: 2.95,
+      y: logoB64 ? 3.35 : 2.95,
       w: 9.2,
-      h: 0.6,
+      h: 0.55,
       fontSize: 12,
       color: "737373",
       align: "right",
     });
   }
 
-  for (const item of slides) {
+  const headerBase = { bold: true, fontSize: 11, color: "FFFFFF" as const, fill: { color: "404040" } };
+  const cellBorder = { pt: 0.5 as const, color: "E5E5E5" };
+
+  for (const section of sections) {
+    const { earned, total, percentage } = calculateSectionMetrics(section.id, data);
     const slide = pptx.addSlide();
     slide.background = { color: "FFFFFF" };
-    slide.addText(`${item.globalIndex} / ${item.totalQuestions}`, {
+    slide.addText(section.title, {
       x: 0.4,
       y: 0.35,
-      w: 2,
-      h: 0.35,
-      fontSize: 11,
-      color: "A3A3A3",
-      align: "left",
-    });
-    slide.addText(item.sectionTitle, {
-      x: 0.4,
-      y: 0.65,
-      w: 9.2,
-      h: 0.45,
-      fontSize: 13,
-      color: "4F46E5",
-      align: "right",
-    });
-    slide.addText(item.question.text, {
-      x: 0.4,
-      y: 1.25,
-      w: 9.2,
-      h: 2.8,
-      fontSize: 22,
-      bold: true,
-      color: "171717",
-      align: "right",
-      valign: "top",
-    });
-    const ans = scoreLabel(data, item.question.id);
-    slide.addText(`التقييم: ${ans}`, {
-      x: 0.4,
-      y: 4.35,
       w: 9.2,
       h: 0.45,
       fontSize: 16,
-      color: ans === "نعم" ? "15803D" : ans === "لا" ? "B91C1C" : "525252",
       bold: true,
+      color: "171717",
       align: "right",
     });
-    const note = data.itemNotes[item.question.id]?.trim();
-    if (note) {
-      slide.addText(`ملاحظة: ${note}`, {
-        x: 0.4,
-        y: 4.85,
-        w: 9.2,
-        h: 1.2,
-        fontSize: 12,
-        color: "525252",
-        align: "right",
-        valign: "top",
-      });
-    }
+    slide.addText(`النتيجة: ${earned}/${total}  •  ${percentage}%`, {
+      x: 0.4,
+      y: 0.78,
+      w: 9.2,
+      h: 0.35,
+      fontSize: 12,
+      color: "737373",
+      align: "right",
+    });
+
+    const tableRows = [
+      [
+        { text: "البند", options: { ...headerBase, align: "right" as const } },
+        { text: "التقييم", options: { ...headerBase, align: "center" as const } },
+        { text: "ملاحظة", options: { ...headerBase, align: "right" as const } },
+      ],
+      ...section.questions.map((q) => {
+        const note = data.itemNotes[q.id]?.trim() || "—";
+        const ans = scoreLabel(data, q.id);
+        const ansColor = ans === "نعم" ? ("15803D" as const) : ans === "لا" ? ("B91C1C" as const) : ("525252" as const);
+        return [
+          {
+            text: q.text,
+            options: { fontSize: 10, align: "right" as const, valign: "top" as const, border: cellBorder },
+          },
+          {
+            text: ans,
+            options: {
+              fontSize: 11,
+              bold: true,
+              color: ansColor,
+              align: "center" as const,
+              valign: "middle" as const,
+              border: cellBorder,
+            },
+          },
+          {
+            text: note,
+            options: {
+              fontSize: 9,
+              color: "525252",
+              align: "right" as const,
+              valign: "top" as const,
+              border: cellBorder,
+            },
+          },
+        ];
+      }),
+    ];
+
+    slide.addTable(tableRows, {
+      x: 0.4,
+      y: 1.2,
+      w: 9.2,
+      colW: [6.1, 1.15, 1.95],
+      border: { pt: 0.5, color: "E5E5E5" },
+      fontSize: 10,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+      autoPageHeaderRows: 1,
+      autoPageSlideStartY: 0.35,
+    });
   }
 
-  for (const section of getActiveSections(data)) {
+  for (const section of sections) {
     const note = data.sectionNotes[section.id]?.trim();
     const imgs = data.sectionImages[section.id] ?? [];
     if (!note && imgs.length === 0) continue;
@@ -159,7 +190,7 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
     imgs.slice(0, 2).forEach((src, i) => {
       try {
         slide.addImage({
-          data: dataUrlToBase64(src),
+          data: dataUrlToPptxBase64(src),
           x: 0.4 + i * 4.7,
           y: note ? 3.1 : 1.1,
           w: 4.5,
@@ -173,22 +204,31 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
 
   const end = pptx.addSlide();
   end.background = { color: "FAFAFA" };
+  if (logoB64) {
+    end.addImage({
+      data: logoB64,
+      x: 3.625,
+      y: 1.35,
+      w: 2.75,
+      h: 0.85,
+    });
+  }
   end.addText("شكراً لكم", {
     x: 0.4,
-    y: 2.2,
+    y: 2.35,
     w: 9.2,
-    h: 1,
-    fontSize: 36,
+    h: 0.85,
+    fontSize: 34,
     bold: true,
     color: "171717",
     align: "center",
   });
-  end.addText("الإدارة التنفيذية للطب الوقائي", {
+  end.addText("تجمع المدينة المنورة الصحي — الإدارة التنفيذية للطب الوقائي", {
     x: 0.4,
-    y: 3.3,
+    y: 3.25,
     w: 9.2,
-    h: 0.5,
-    fontSize: 14,
+    h: 0.65,
+    fontSize: 13,
     color: "525252",
     align: "center",
   });

@@ -92,3 +92,57 @@ export function safeExportBase(data: InspectionData): string {
   const h = (data.hospital || "facility").replace(/[^\w\u0600-\u06FF-]+/g, "_").slice(0, 64);
   return `${h}_${data.date || "nodate"}`;
 }
+
+export type InspectionFlowStep =
+  | {
+      kind: "question";
+      sectionId: string;
+      sectionTitle: string;
+      sectionIndex: number;
+      sectionsCount: number;
+      question: InspectionQuestion;
+      questionIndexInSection: number;
+      questionsInSection: number;
+    }
+  | {
+      kind: "section-wrap";
+      sectionId: string;
+      sectionTitle: string;
+      sectionIndex: number;
+      sectionsCount: number;
+    };
+
+export function buildInspectionFlow(data: InspectionData): InspectionFlowStep[] {
+  const sections = getActiveSections(data);
+  const steps: InspectionFlowStep[] = [];
+  const sectionsCount = sections.length;
+  sections.forEach((section, sectionIndex) => {
+    const n = section.questions.length;
+    section.questions.forEach((question, qi) => {
+      steps.push({
+        kind: "question",
+        sectionId: section.id,
+        sectionTitle: section.title,
+        sectionIndex,
+        sectionsCount,
+        question,
+        questionIndexInSection: qi + 1,
+        questionsInSection: n,
+      });
+    });
+    steps.push({
+      kind: "section-wrap",
+      sectionId: section.id,
+      sectionTitle: section.title,
+      sectionIndex,
+      sectionsCount,
+    });
+  });
+  return steps;
+}
+
+export function isFlowStepComplete(step: InspectionFlowStep, data: InspectionData): boolean {
+  if (step.kind === "section-wrap") return true;
+  const s = data.scores[step.question.id];
+  return s !== undefined && s !== null;
+}

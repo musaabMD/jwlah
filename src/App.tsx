@@ -10,8 +10,6 @@ import {
   ChevronRight,
   Download,
   Plus,
-  Image as ImageIcon,
-  Hospital,
   ArrowRight,
   TrendingUp,
   Presentation,
@@ -30,14 +28,17 @@ import {
   countActiveQuestions,
   flattenQuestionSlides,
   getActiveSections,
-  isSectionComplete,
+  buildInspectionFlow,
+  isFlowStepComplete,
   safeExportBase,
 } from "./inspection-utils";
+import { MHC_LOGO_PATH } from "./branding";
+import { inlineImagesForPdfCapture } from "./export-helpers";
 import { downloadInspectionPptx } from "./export-pptx";
 
 export default function App() {
   const [step, setStep] = useState<"setup" | "inspection" | "report" | "presentation" | "history">("setup");
-  const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
+  const [inspectionStepIndex, setInspectionStepIndex] = useState(0);
   const [presIndex, setPresIndex] = useState(0);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState<"pdf" | "pptx" | null>(null);
@@ -67,6 +68,7 @@ export default function App() {
   const activeCount = useMemo(() => countActiveQuestions(data), [data.skippedQuestionIds]);
   const questionSlides = useMemo(() => flattenQuestionSlides(data), [data.skippedQuestionIds]);
   const presTotal = questionSlides.length + 2;
+  const inspectionFlow = useMemo(() => buildInspectionFlow(data), [data.skippedQuestionIds]);
 
   useEffect(() => {
     if (step !== "report") return;
@@ -90,8 +92,8 @@ export default function App() {
   }, [step]);
 
   useEffect(() => {
-    setCurrentSectionIndex((i) => Math.min(i, Math.max(0, activeSections.length - 1)));
-  }, [activeSections.length]);
+    setInspectionStepIndex((i) => Math.min(i, Math.max(0, inspectionFlow.length - 1)));
+  }, [inspectionFlow.length]);
 
   const deleteFromHistory = (id: string) => {
     setHistory((prev) => {
@@ -129,14 +131,29 @@ export default function App() {
     setExportBusy("pdf");
     try {
       const el = reportRef.current;
-      const canvas = await html2canvas(el, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: "#ffffff",
-        scrollX: 0,
-        scrollY: 0,
-      });
+      await document.fonts.ready;
+      await inlineImagesForPdfCapture(el);
+
+      const runCapture = (scale: number) =>
+        html2canvas(el, {
+          scale,
+          useCORS: true,
+          allowTaint: false,
+          logging: false,
+          backgroundColor: "#ffffff",
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: el.scrollWidth,
+          windowHeight: el.scrollHeight,
+        });
+
+      let canvas: HTMLCanvasElement;
+      try {
+        canvas = await runCapture(2);
+      } catch {
+        canvas = await runCapture(1.25);
+      }
+
       const imgData = canvas.toDataURL("image/jpeg", 0.92);
       const pdf = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
       const pageWidth = pdf.internal.pageSize.getWidth();
@@ -203,9 +220,12 @@ export default function App() {
     });
   };
 
-  const curSection = activeSections[currentSectionIndex];
+  const flowStep = inspectionFlow[inspectionStepIndex];
   const canStart =
     Boolean(data.hospital) && data.inspectors.length > 0 && activeCount > 0 && activeSections.length > 0;
+  const canProceedStep = flowStep ? isFlowStepComplete(flowStep, data) : false;
+  const finishInspection =
+    inspectionFlow.length > 0 && inspectionStepIndex === inspectionFlow.length - 1 && flowStep?.kind === "section-wrap";
 
   const scoreLabel = (qid: string) => {
     const s = data.scores[qid];
@@ -472,7 +492,7 @@ export default function App() {
                 type="button"
                 disabled={!canStart}
                 onClick={() => {
-                  setCurrentSectionIndex(0);
+                  setInspectionStepIndex(0);
                   setData((p) => ({ ...p, id: undefined }));
                   setStep("inspection");
                 }}
@@ -484,112 +504,141 @@ export default function App() {
             </motion.div>
           )}
 
-          {step === "inspection" && curSection && (
+          {step === "inspection" && flowStep && (
             <motion.div key="inspection" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
               <div className="rounded-xl border border-zinc-200 bg-white p-4">
-                <div className="mb-2 flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-medium text-zinc-500">القسم {currentSectionIndex + 1} / {activeSections.length}</p>
-                    <h2 className="text-base font-semibold leading-snug">{curSection.title}</h2>
-                  </div>
-                </div>
-                <div className="h-1 overflow-hidden rounded-full bg-zinc-100">
+                <p className="text-[11px] font-medium text-zinc-500">
+                  الخطوة {inspectionStepIndex + 1} من {inspectionFlow.length}
+                  {flowStep.kind === "question" && (
+                    <span className="mr-1 text-zinc-400">
+                      · القسم {flowStep.sectionIndex + 1}/{flowStep.sectionsCount} — سؤال {flowStep.questionIndexInSection}/{flowStep.questionsInSection}
+                    </span>
+                  )}
+                  {flowStep.kind === "section-wrap" && (
+                    <span className="mr-1 text-zinc-400">
+                      · ختام القسم {flowStep.sectionIndex + 1}/{flowStep.sectionsCount}
+                    </span>
+                  )}
+                </p>
+                <h2 className="mt-1 text-base font-semibold leading-snug">{flowStep.sectionTitle}</h2>
+                <div className="mt-3 h-1 overflow-hidden rounded-full bg-zinc-100">
                   <div
                     className="h-full rounded-full bg-zinc-900 transition-all"
-                    style={{ width: `${((currentSectionIndex + 1) / activeSections.length) * 100}%` }}
+                    style={{ width: `${((inspectionStepIndex + 1) / inspectionFlow.length) * 100}%` }}
                   />
                 </div>
               </div>
 
-              <div className="space-y-3">
-                {curSection.questions.map((q, idx) => (
-                  <div key={q.id} className="rounded-xl border border-zinc-200 bg-white p-4">
-                    <div className="mb-3 flex gap-2">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-[11px] font-bold text-zinc-700">{idx + 1}</span>
-                      <p className="text-sm leading-relaxed text-zinc-800">{q.text}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {(
-                        [
-                          { val: "yes" as const, label: "نعم" },
-                          { val: "no" as const, label: "لا" },
-                          { val: "na" as const, label: "N/A" },
-                        ] as const
-                      ).map((opt) => (
-                        <button
-                          key={opt.val}
-                          type="button"
-                          onClick={() => setData((prev) => ({ ...prev, scores: { ...prev.scores, [q.id]: opt.val } }))}
-                          className={`rounded-lg px-3 py-2 text-xs font-semibold ${
-                            data.scores[q.id] === opt.val ? "bg-zinc-900 text-white" : "border border-zinc-200 bg-zinc-50 text-zinc-600"
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                    <textarea
-                      placeholder="ملاحظة (اختياري)"
-                      value={data.itemNotes[q.id] || ""}
-                      onChange={(e) => setData((prev) => ({ ...prev, itemNotes: { ...prev.itemNotes, [q.id]: e.target.value } }))}
-                      className="mt-3 min-h-[72px] w-full resize-none rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
-                    />
-                  </div>
-                ))}
-              </div>
-
-              <div className="rounded-xl border border-zinc-200 bg-white p-4">
-                <h3 className="mb-2 text-xs font-semibold text-zinc-700">ملاحظة القسم</h3>
-                <textarea
-                  value={data.sectionNotes[curSection.id] || ""}
-                  onChange={(e) =>
-                    setData((prev) => ({
-                      ...prev,
-                      sectionNotes: { ...prev.sectionNotes, [curSection.id]: e.target.value },
-                    }))
-                  }
-                  className="min-h-[88px] w-full resize-none rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
-                />
-                <div className="mt-3 flex items-center justify-between">
-                  <span className="text-xs text-zinc-500">صور</span>
-                  <label className="cursor-pointer rounded-lg border border-zinc-200 px-2 py-1 text-[11px] font-medium">
-                    <Plus className="mr-1 inline h-3 w-3" />
-                    إضافة
-                    <input type="file" multiple accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, curSection.id)} />
-                  </label>
-                </div>
-                {(data.sectionImages[curSection.id] || []).length > 0 && (
-                  <div className="mt-2 grid grid-cols-4 gap-1.5">
-                    {(data.sectionImages[curSection.id] || []).map((img, i) => (
-                      <div key={i} className="relative aspect-square overflow-hidden rounded-md border border-zinc-100">
-                        <img src={img} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const current = [...(data.sectionImages[curSection.id] || [])];
-                            current.splice(i, 1);
-                            setData((prev) => ({
-                              ...prev,
-                              sectionImages: { ...prev.sectionImages, [curSection.id]: current },
-                            }));
-                          }}
-                          className="absolute right-0.5 top-0.5 rounded bg-red-600 p-0.5 text-white"
-                        >
-                          <XCircle className="h-3 w-3" />
-                        </button>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={inspectionStepIndex}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -16 }}
+                  transition={{ duration: 0.18 }}
+                  className="min-h-[52dvh]"
+                >
+                  {flowStep.kind === "question" ? (
+                    <div className="flex min-h-[52dvh] flex-col justify-center rounded-xl border border-zinc-200 bg-white p-5 sm:min-h-[56dvh] sm:p-8">
+                      <p className="text-lg font-medium leading-relaxed text-zinc-900 sm:text-xl">{flowStep.question.text}</p>
+                      <div className="mt-8 flex flex-wrap gap-2">
+                        {(
+                          [
+                            { val: "yes" as const, label: "نعم" },
+                            { val: "no" as const, label: "لا" },
+                            { val: "na" as const, label: "N/A" },
+                          ] as const
+                        ).map((opt) => (
+                          <button
+                            key={opt.val}
+                            type="button"
+                            onClick={() =>
+                              setData((prev) => ({
+                                ...prev,
+                                scores: { ...prev.scores, [flowStep.question.id]: opt.val },
+                              }))
+                            }
+                            className={`min-h-[44px] min-w-[4.5rem] rounded-xl px-4 py-2.5 text-sm font-semibold ${
+                              data.scores[flowStep.question.id] === opt.val
+                                ? "bg-zinc-900 text-white"
+                                : "border border-zinc-200 bg-zinc-50 text-zinc-700"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                      <label className="mt-8 block text-[11px] font-medium text-zinc-500">ملاحظة (اختياري)</label>
+                      <textarea
+                        placeholder="…"
+                        value={data.itemNotes[flowStep.question.id] || ""}
+                        onChange={(e) =>
+                          setData((prev) => ({
+                            ...prev,
+                            itemNotes: { ...prev.itemNotes, [flowStep.question.id]: e.target.value },
+                          }))
+                        }
+                        className="mt-1 min-h-[88px] w-full resize-none rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
+                      />
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-zinc-200 bg-white p-5 sm:p-6">
+                      <h3 className="text-sm font-semibold text-zinc-800">ملاحظات وصور القسم</h3>
+                      <p className="mt-1 text-[11px] text-zinc-500">قبل الانتقال للقسم التالي، يمكنك توثيق الملاحظات العامة.</p>
+                      <textarea
+                        value={data.sectionNotes[flowStep.sectionId] || ""}
+                        onChange={(e) =>
+                          setData((prev) => ({
+                            ...prev,
+                            sectionNotes: { ...prev.sectionNotes, [flowStep.sectionId]: e.target.value },
+                          }))
+                        }
+                        className="mt-4 min-h-[100px] w-full resize-none rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
+                        placeholder="ملاحظة ختامية للقسم…"
+                      />
+                      <div className="mt-4 flex items-center justify-between">
+                        <span className="text-xs text-zinc-500">صور</span>
+                        <label className="cursor-pointer rounded-lg border border-zinc-200 px-3 py-1.5 text-[11px] font-medium">
+                          <Plus className="mr-1 inline h-3 w-3" />
+                          إضافة
+                          <input type="file" multiple accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, flowStep.sectionId)} />
+                        </label>
+                      </div>
+                      {(data.sectionImages[flowStep.sectionId] || []).length > 0 && (
+                        <div className="mt-3 grid grid-cols-4 gap-1.5 sm:grid-cols-6">
+                          {(data.sectionImages[flowStep.sectionId] || []).map((img, i) => (
+                            <div key={i} className="relative aspect-square overflow-hidden rounded-md border border-zinc-100">
+                              <img src={img} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const current = [...(data.sectionImages[flowStep.sectionId] || [])];
+                                  current.splice(i, 1);
+                                  setData((prev) => ({
+                                    ...prev,
+                                    sectionImages: { ...prev.sectionImages, [flowStep.sectionId]: current },
+                                  }));
+                                }}
+                                className="absolute right-0.5 top-0.5 rounded bg-red-600 p-0.5 text-white"
+                              >
+                                <XCircle className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </motion.div>
+              </AnimatePresence>
 
               <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-200 bg-white/95 p-3 backdrop-blur-md">
                 <div className="mx-auto flex max-w-lg gap-2 sm:max-w-2xl">
                   <button
                     type="button"
                     onClick={() => {
-                      if (currentSectionIndex > 0) {
-                        setCurrentSectionIndex((p) => p - 1);
+                      if (inspectionStepIndex > 0) {
+                        setInspectionStepIndex((p) => p - 1);
                         window.scrollTo(0, 0);
                       } else setStep("setup");
                     }}
@@ -599,20 +648,25 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    disabled={!isSectionComplete(curSection.id, data)}
+                    disabled={!canProceedStep}
                     onClick={() => {
-                      if (currentSectionIndex < activeSections.length - 1) {
-                        setCurrentSectionIndex((p) => p + 1);
+                      if (finishInspection) {
+                        setStep("report");
                         window.scrollTo(0, 0);
-                      } else setStep("report");
+                        return;
+                      }
+                      setInspectionStepIndex((p) => Math.min(p + 1, inspectionFlow.length - 1));
+                      window.scrollTo(0, 0);
                     }}
                     className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-zinc-900 py-3 text-sm font-semibold text-white disabled:bg-zinc-200 disabled:text-zinc-400"
                   >
-                    {currentSectionIndex < activeSections.length - 1 ? "التالي" : "النتائج"}
+                    {finishInspection ? "النتائج" : "متابعة"}
                     <ChevronLeft className="h-4 w-4" />
                   </button>
                 </div>
-                {!isSectionComplete(curSection.id, data) && <p className="mt-2 text-center text-[11px] text-red-600">أكمل تقييم كل البنود في هذا القسم</p>}
+                {flowStep.kind === "question" && !canProceedStep && (
+                  <p className="mt-2 text-center text-[11px] text-red-600">اختر نعم أو لا أو N/A للمتابعة</p>
+                )}
               </div>
             </motion.div>
           )}
@@ -651,12 +705,21 @@ export default function App() {
 
               <div ref={reportRef} className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-8" id="official-report">
                 <div className="mb-6 flex flex-col gap-4 border-b border-zinc-100 pb-6 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <h2 className="text-lg font-bold sm:text-xl">تقرير جولة تفتيشية</h2>
-                    <p className="text-xs text-zinc-500">الإدارة التنفيذية للطب الوقائي</p>
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-600">
-                      <span className="rounded-md bg-zinc-100 px-2 py-1">{data.hospital}</span>
-                      <span className="rounded-md bg-zinc-100 px-2 py-1">{data.date}</span>
+                  <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+                    <img
+                      src={MHC_LOGO_PATH}
+                      alt=""
+                      className="h-10 w-auto shrink-0 object-contain object-right sm:h-12"
+                      width={404}
+                      height={124}
+                    />
+                    <div>
+                      <h2 className="text-lg font-bold sm:text-xl">تقرير جولة تفتيشية</h2>
+                      <p className="text-xs text-zinc-500">تجمع المدينة المنورة الصحي — الإدارة التنفيذية للطب الوقائي</p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-600">
+                        <span className="rounded-md bg-zinc-100 px-2 py-1">{data.hospital}</span>
+                        <span className="rounded-md bg-zinc-100 px-2 py-1">{data.date}</span>
+                      </div>
                     </div>
                   </div>
                   <div className="text-left sm:text-right">
@@ -741,7 +804,7 @@ export default function App() {
                 </div>
 
                 <footer className="mt-10 border-t border-zinc-100 pt-4 text-center text-[11px] text-zinc-500">
-                  تجمع المدينة الصحي — 1447 هـ · متابعة جاهزية المرافق الصحية
+                  تجمع المدينة المنورة الصحي — 1447 هـ · متابعة جاهزية المرافق الصحية
                 </footer>
               </div>
             </motion.div>
@@ -767,7 +830,13 @@ export default function App() {
               <div className="flex flex-1 flex-col justify-center px-4 pb-20 pt-6">
                 {presIndex === 0 && (
                   <div className="mx-auto max-w-lg text-center">
-                    <Hospital className="mx-auto mb-6 h-12 w-12 text-white/40" />
+                    <img
+                      src={MHC_LOGO_PATH}
+                      alt=""
+                      className="mx-auto mb-6 h-14 w-auto max-w-[min(100%,280px)] object-contain brightness-0 invert"
+                      width={404}
+                      height={124}
+                    />
                     <h1 className="text-2xl font-bold leading-snug sm:text-3xl">{data.hospital}</h1>
                     <p className="mt-2 text-sm text-white/50">{data.date}</p>
                     <p className="mt-8 text-5xl font-bold tabular-nums sm:text-6xl">{totalScoreInfo.percentage}%</p>

@@ -30,13 +30,27 @@ import { MHC_LOGO_PATH } from "./branding";
 import { downloadInspectionPptx } from "./export-pptx";
 import { downloadInspectionReportPdf } from "./pdf-export";
 
-const SETUP_STEP_COUNT = 3;
+const SETUP_STEP_COUNT = 4;
 
 const SETUP_WIZARD_STEPS = [
   { label: "الفريق" },
   { label: "المنشأة" },
+  { label: "التاريخ" },
   { label: "البنود" },
 ] as const;
+
+function localISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function todayLocalISO(): string {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  return localISODate(d);
+}
 
 /** Dates shown as tappable chips (no native date picker / dropdown). */
 function buildSetupDateStrip(): { iso: string; weekday: string; dayMonth: string }[] {
@@ -46,7 +60,7 @@ function buildSetupDateStrip(): { iso: string; weekday: string; dayMonth: string
   for (let delta = -7; delta <= 60; delta++) {
     const d = new Date(base);
     d.setDate(base.getDate() + delta);
-    const iso = d.toISOString().split("T")[0];
+    const iso = localISODate(d);
     const weekday = new Intl.DateTimeFormat("ar-SA", { weekday: "short" }).format(d);
     const dayMonth = new Intl.DateTimeFormat("ar-SA", { day: "numeric", month: "short" }).format(d);
     rows.push({ iso, weekday, dayMonth });
@@ -60,7 +74,7 @@ export default function App() {
   const [presIndex, setPresIndex] = useState(0);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState<"pdf" | "pptx" | null>(null);
-  /** معالج الإعداد: 0 فريق، 1 منشأة وتاريخ، 2 بنود ثم بدء الجولة */
+  /** معالج الإعداد: 0 فريق، 1 منشأة، 2 تاريخ، 3 بنود ثم بدء الجولة */
   const [setupWizardStep, setSetupWizardStep] = useState(0);
 
   const [history, setHistory] = useState<unknown[]>(() => {
@@ -68,19 +82,25 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
-  const [data, setData] = useState<InspectionData>({
+  const [data, setData] = useState<InspectionData>(() => {
+    const noon = new Date();
+    noon.setHours(12, 0, 0, 0);
+    const iso = localISODate(noon);
+    return {
     inspectors: [],
     hospital: "",
-    date: new Date().toISOString().split("T")[0],
-    day: new Intl.DateTimeFormat("ar-SA", { weekday: "long" }).format(new Date()),
+    date: iso,
+    day: new Intl.DateTimeFormat("ar-SA", { weekday: "long" }).format(new Date(iso + "T12:00:00")),
     scores: {},
     itemNotes: {},
     sectionNotes: {},
     sectionImages: {},
     skippedQuestionIds: [],
+  };
   });
 
   const reportRef = useRef<HTMLDivElement>(null);
+  const setupDateStripScrollRef = useRef<HTMLDivElement>(null);
 
   const activeSections = useMemo(() => getActiveSections(data), [data.skippedQuestionIds]);
   const totalScoreInfo = useMemo(() => calculateGlobalMetrics(data), [data.scores, data.skippedQuestionIds]);
@@ -114,6 +134,15 @@ export default function App() {
   useEffect(() => {
     setInspectionStepIndex((i) => Math.min(i, Math.max(0, inspectionFlow.length - 1)));
   }, [inspectionFlow.length]);
+
+  useEffect(() => {
+    if (step !== "setup" || setupWizardStep !== 2) return;
+    const t = window.setTimeout(() => {
+      const el = setupDateStripScrollRef.current?.querySelector<HTMLElement>(`[data-date-iso="${todayLocalISO()}"]`);
+      el?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    }, 100);
+    return () => window.clearTimeout(t);
+  }, [step, setupWizardStep]);
 
   const deleteFromHistory = (id: string) => {
     setHistory((prev) => {
@@ -153,7 +182,7 @@ export default function App() {
       await downloadInspectionReportPdf(reportRef.current, safeExportBase(data));
     } catch (e) {
       console.error(e);
-      setExportMsg("تعذر إنشاء ملف PDF. جرّب متصفحاً آخر أو عطّل حظر التنزيلات.");
+      setExportMsg("تعذر إنشاء ملف PDF. جرّب تحديث الصفحة أو تصدير PowerPoint.");
     } finally {
       setExportBusy(null);
     }
@@ -206,8 +235,10 @@ export default function App() {
     setupWizardStep === 0
       ? data.inspectors.length > 0
       : setupWizardStep === 1
-        ? Boolean(data.hospital && data.date)
-        : false;
+        ? Boolean(data.hospital)
+        : setupWizardStep === 2
+          ? Boolean(data.date)
+          : false;
   const canProceedStep = flowStep ? isFlowStepComplete(flowStep, data) : false;
   const finishInspection =
     inspectionFlow.length > 0 && inspectionStepIndex === inspectionFlow.length - 1 && flowStep?.kind === "section-wrap";
@@ -275,11 +306,12 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
+                    const fresh = todayLocalISO();
                     setData({
                       inspectors: [],
                       hospital: "",
-                      date: new Date().toISOString().split("T")[0],
-                      day: new Intl.DateTimeFormat("ar-SA", { weekday: "long" }).format(new Date()),
+                      date: fresh,
+                      day: new Intl.DateTimeFormat("ar-SA", { weekday: "long" }).format(new Date(`${fresh}T12:00:00`)),
                       scores: {},
                       itemNotes: {},
                       sectionNotes: {},
@@ -455,10 +487,8 @@ export default function App() {
 
               {setupWizardStep === 1 && (
                 <section className="rounded-xl border border-zinc-200 bg-white p-4">
-                  <h2 className="mb-1 text-sm font-semibold">المنشأة والتاريخ</h2>
-                  <p className="mb-4 text-[11px] text-zinc-500">حدد موقع الزيارة والتاريخ</p>
-
-                  <p className="mb-2 text-[11px] font-medium text-zinc-600">المنشأة</p>
+                  <h2 className="mb-1 text-sm font-semibold">المنشأة</h2>
+                  <p className="mb-4 text-[11px] text-zinc-500">حدد موقع الزيارة</p>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {HOSPITALS.map((h) => {
                       const on = data.hospital === h;
@@ -481,16 +511,25 @@ export default function App() {
                       );
                     })}
                   </div>
+                </section>
+              )}
 
-                  <p className="mb-2 mt-5 text-[11px] font-medium text-zinc-600">التاريخ</p>
-                  <p className="mb-2 text-[10px] text-zinc-400">مرّر أفقياً واضغط اليوم — دون قوائم منسدلة</p>
-                  <div className="-mx-1 flex snap-x snap-mandatory gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]">
+              {setupWizardStep === 2 && (
+                <section className="rounded-xl border border-zinc-200 bg-white p-4">
+                  <h2 className="mb-1 text-sm font-semibold">التاريخ</h2>
+                  <p className="mb-4 text-[11px] text-zinc-500">اختر يوم الزيارة</p>
+                  <div
+                    ref={setupDateStripScrollRef}
+                    className="-mx-1 flex snap-x snap-mandatory gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]"
+                  >
                     {setupDateStrip.map(({ iso, weekday, dayMonth }) => {
                       const on = data.date === iso;
+                      const isToday = iso === todayLocalISO();
                       return (
                         <button
                           key={iso}
                           type="button"
+                          data-date-iso={iso}
                           onClick={() =>
                             setData((prev) => ({
                               ...prev,
@@ -498,13 +537,18 @@ export default function App() {
                               day: new Intl.DateTimeFormat("ar-SA", { weekday: "long" }).format(new Date(iso + "T12:00:00")),
                             }))
                           }
-                          className={`snap-start shrink-0 rounded-xl border px-3 py-2.5 text-center transition-colors ${
+                          className={`relative snap-start shrink-0 rounded-xl border px-3 py-2.5 text-center transition-colors ${
                             on
                               ? "border-2 border-zinc-900 bg-zinc-50 text-zinc-900"
                               : "border border-zinc-200 bg-white text-zinc-800"
                           }`}
                         >
-                          <span className="block text-[10px] font-medium text-zinc-500">{weekday}</span>
+                          {isToday ? (
+                            <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 rounded bg-zinc-900 px-1.5 py-px text-[8px] font-bold text-white">
+                              اليوم
+                            </span>
+                          ) : null}
+                          <span className={`block text-[10px] font-medium ${on ? "text-zinc-600" : "text-zinc-500"}`}>{weekday}</span>
                           <span className="mt-0.5 block text-sm font-semibold tabular-nums">{dayMonth}</span>
                         </button>
                       );
@@ -516,7 +560,7 @@ export default function App() {
                 </section>
               )}
 
-              {setupWizardStep === 2 && (
+              {setupWizardStep === 3 && (
                 <section className="rounded-xl border border-zinc-200 bg-white p-4">
                   <h2 className="mb-1 text-sm font-semibold">بنود التقييم</h2>
                   <p className="mb-3 text-[11px] text-zinc-500">ألغِ تحديد ما لا يخص هذه الزيارة</p>
@@ -618,25 +662,36 @@ export default function App() {
                             { val: "no" as const, label: "لا" },
                             { val: "na" as const, label: "N/A" },
                           ] as const
-                        ).map((opt) => (
-                          <button
-                            key={opt.val}
-                            type="button"
-                            onClick={() =>
-                              setData((prev) => ({
-                                ...prev,
-                                scores: { ...prev.scores, [flowStep.question.id]: opt.val },
-                              }))
-                            }
-                            className={`min-h-[52px] rounded-2xl px-3 py-3 text-base font-bold shadow-sm transition-[transform,box-shadow] active:scale-[0.98] sm:min-h-14 sm:text-lg ${
-                              data.scores[flowStep.question.id] === opt.val
-                                ? "bg-zinc-900 text-white ring-2 ring-zinc-900 ring-offset-2"
-                                : "border-2 border-zinc-200 bg-zinc-50 text-zinc-800 hover:border-zinc-300 hover:bg-white"
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
+                        ).map((opt) => {
+                          const selected = data.scores[flowStep.question.id] === opt.val;
+                          const lane =
+                            opt.val === "yes"
+                              ? selected
+                                ? "border-emerald-700 bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400/50 ring-offset-2 ring-offset-white"
+                                : "border-emerald-200 bg-emerald-50 text-emerald-900 hover:border-emerald-300 hover:bg-emerald-100/90"
+                              : opt.val === "no"
+                                ? selected
+                                  ? "border-red-700 bg-red-600 text-white shadow-sm ring-2 ring-red-400/50 ring-offset-2 ring-offset-white"
+                                  : "border-red-200 bg-red-50 text-red-900 hover:border-red-300 hover:bg-red-100/90"
+                                : selected
+                                  ? "border-blue-700 bg-blue-600 text-white shadow-sm ring-2 ring-blue-400/50 ring-offset-2 ring-offset-white"
+                                  : "border-blue-200 bg-blue-50 text-blue-900 hover:border-blue-300 hover:bg-blue-100/90";
+                          return (
+                            <button
+                              key={opt.val}
+                              type="button"
+                              onClick={() =>
+                                setData((prev) => ({
+                                  ...prev,
+                                  scores: { ...prev.scores, [flowStep.question.id]: opt.val },
+                                }))
+                              }
+                              className={`min-h-[52px] rounded-2xl border-2 px-3 py-3 text-base font-bold transition-[transform,box-shadow,background-color] active:scale-[0.98] sm:min-h-14 sm:text-lg ${lane}`}
+                            >
+                              {opt.label}
+                            </button>
+                          );
+                        })}
                       </div>
                       <label className="mt-8 block text-sm font-semibold text-zinc-700">ملاحظة (اختياري)</label>
                       <textarea
@@ -957,7 +1012,7 @@ export default function App() {
                 السابق
               </button>
             ) : null}
-            {setupWizardStep < 2 ? (
+            {setupWizardStep < 3 ? (
               <button
                 type="button"
                 disabled={!canSetupNext}

@@ -18,12 +18,15 @@ export interface Inspector {
 export type ScoreValue = "yes" | "no" | "na" | null;
 
 export interface InspectionData {
+  id?: string;
   inspectors: string[];
   hospital: string;
   date: string;
   day: string;
-  scores: Record<string, ScoreValue>; 
-  itemNotes: Record<string, string>; // Notes per question
-  sectionNotes: Record<string, string>; // Notes per section
-  sectionImages: Record<string, string[]>; // Images per section
+  scores: Record<string, ScoreValue>;
+  itemNotes: Record<string, string>;
+  sectionNotes: Record<string, string>;
+  sectionImages: Record<string, string[]>;
+  /** Question IDs to exclude from this tour (unchecked in setup). */
+  skippedQuestionIds?: string[];
 }

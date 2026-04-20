@@ -17,7 +17,6 @@ import {
   Printer,
   LayoutGrid,
   Mail,
-  Target,
   Sparkles,
   FileText,
   BarChart3,
@@ -40,12 +39,13 @@ import { MHC_LOGO_PATH } from "./branding";
 import { downloadInspectionPptx } from "./export-pptx";
 import { downloadInspectionReportPdf, printInspectionReport } from "./pdf-export";
 
-const SETUP_STEP_COUNT = 4;
+const SETUP_STEP_COUNT = 5;
 const DRAFT_STORAGE_KEY = "tour_draft";
 
 const SETUP_WIZARD_STEPS = [
   { label: "الفريق" },
   { label: "المنشأة" },
+  { label: "البريد" },
   { label: "التاريخ" },
   { label: "البنود" },
 ] as const;
@@ -169,7 +169,7 @@ export default function App() {
   }, [data]);
 
   useEffect(() => {
-    if (step !== "setup" || setupWizardStep !== 2) return;
+    if (step !== "setup" || setupWizardStep !== 3) return;
     const t = window.setTimeout(() => {
       const el = setupDateStripScrollRef.current?.querySelector<HTMLElement>(`[data-date-iso="${todayLocalISO()}"]`);
       el?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
@@ -307,13 +307,13 @@ export default function App() {
       : setupWizardStep === 1
         ? Boolean(data.hospital)
         : setupWizardStep === 2
-          ? Boolean(data.date)
-          : false;
+          ? true
+          : setupWizardStep === 3
+            ? Boolean(data.date)
+            : false;
   const canProceedStep = flowStep ? isFlowStepComplete(flowStep, data) : false;
   const finishInspection =
     inspectionFlow.length > 0 && inspectionStepIndex === inspectionFlow.length - 1 && flowStep?.kind === "section-wrap";
-  const baselineDelta =
-    typeof data.baselinePercentage === "number" ? totalScoreInfo.percentage - data.baselinePercentage : null;
 
   const scoreLabel = (qid: string) => {
     const s = data.scores[qid];
@@ -449,19 +449,19 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.4 }}
-              className="relative flex min-h-[86dvh] items-center justify-center overflow-hidden rounded-3xl border border-zinc-200/70 bg-gradient-to-b from-zinc-950 via-zinc-900 to-zinc-950 px-4 py-8 text-white sm:px-8"
+              className="relative flex min-h-[86dvh] items-center justify-center overflow-hidden rounded-3xl border border-zinc-200/90 bg-gradient-to-b from-white via-zinc-50/90 to-zinc-100/80 px-4 py-8 text-zinc-900 antialiased shadow-sm [text-rendering:optimizeLegibility] sm:px-8"
             >
               <motion.div
                 aria-hidden
-                className="pointer-events-none absolute -left-12 top-20 h-40 w-40 rounded-full bg-indigo-400/30 blur-3xl"
-                animate={{ x: [0, 20, 0], y: [0, -10, 0] }}
-                transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+                className="pointer-events-none absolute -left-16 top-12 h-44 w-44 rounded-full bg-indigo-400/[0.12] blur-3xl"
+                animate={{ x: [0, 16, 0], y: [0, -8, 0] }}
+                transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
               />
               <motion.div
                 aria-hidden
-                className="pointer-events-none absolute -right-10 bottom-16 h-48 w-48 rounded-full bg-fuchsia-400/25 blur-3xl"
-                animate={{ x: [0, -18, 0], y: [0, 12, 0] }}
-                transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
+                className="pointer-events-none absolute -right-14 bottom-10 h-52 w-52 rounded-full bg-emerald-400/[0.1] blur-3xl"
+                animate={{ x: [0, -14, 0], y: [0, 10, 0] }}
+                transition={{ duration: 9, repeat: Infinity, ease: "easeInOut" }}
               />
 
               <div className="relative z-10 w-full max-w-3xl">
@@ -469,7 +469,7 @@ export default function App() {
                   initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.1, duration: 0.35 }}
-                  className="mx-auto w-fit rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-xs font-semibold text-white/90 backdrop-blur"
+                  className="mx-auto w-fit rounded-full border border-zinc-200/90 bg-white/90 px-4 py-2 text-[13px] font-semibold text-zinc-800 shadow-sm backdrop-blur-sm"
                 >
                   الإدارة التنفيذية للصحة العامة
                 </motion.div>
@@ -480,20 +480,26 @@ export default function App() {
                   transition={{ delay: 0.18, duration: 0.35 }}
                   className="mt-5 text-center"
                 >
-                  <img
-                    src={MHC_LOGO_PATH}
-                    alt=""
-                    className="mx-auto h-12 w-auto object-contain brightness-0 invert sm:h-14"
-                    width={404}
-                    height={124}
-                  />
-                  <p className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-1 text-xs font-semibold text-indigo-100 ring-1 ring-white/20">
-                    <Sparkles className="h-3.5 w-3.5" />
+                  <div className="mx-auto inline-flex max-w-full flex-col items-center rounded-2xl border border-zinc-200/90 bg-white px-5 py-4 shadow-[0_1px_0_0_rgba(0,0,0,0.04)] ring-1 ring-zinc-950/[0.04]">
+                    <img
+                      src={MHC_LOGO_PATH}
+                      alt="شعار تجمع المدينة المنورة الصحي"
+                      className="mx-auto h-12 w-auto max-w-[min(100%,280px)] object-contain sm:h-14"
+                      width={404}
+                      height={124}
+                      loading="eager"
+                      decoding="async"
+                    />
+                  </div>
+                  <p className="mt-4 inline-flex items-center gap-2 rounded-xl border border-zinc-200/90 bg-zinc-100/80 px-3 py-1.5 text-[13px] font-semibold text-zinc-800">
+                    <Sparkles className="h-3.5 w-3.5 shrink-0 text-zinc-600" />
                     جولة
                   </p>
-                  <h2 className="mt-4 text-2xl font-black leading-relaxed sm:text-4xl">نظام إلكتروني لإنجاز الجولات بشكل إلكتروني</h2>
-                  <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-white/80 sm:text-base">
-                    إنشاء تقارير الجولات بشكل مباشر، وإحصائيات الجولات للإدارة التنفيذية للصحة العامة وأقسامها.
+                  <h2 className="mt-5 text-balance text-2xl font-extrabold leading-snug tracking-tight text-zinc-950 sm:text-3xl md:text-4xl">
+                    إنجاز الجولات إلكترونيًا
+                  </h2>
+                  <p className="mx-auto mt-4 max-w-2xl text-[15px] font-medium leading-8 text-zinc-600 sm:text-base sm:leading-8">
+                    إنشاء تقارير الجولات مباشرة، ومتابعة الإحصائيات للإدارة التنفيذية للصحة العامة وأقسامها.
                   </p>
                 </motion.div>
 
@@ -501,38 +507,48 @@ export default function App() {
                   initial={{ opacity: 0, y: 22 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.28, duration: 0.38 }}
-                  className="mt-7 grid grid-cols-1 gap-2.5 sm:grid-cols-3"
+                  className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-3"
                 >
-                  <div className="rounded-2xl border border-white/20 bg-white/10 p-3 backdrop-blur">
-                    <p className="inline-flex items-center gap-2 text-xs font-semibold text-indigo-100">
-                      <ClipboardCheck className="h-4 w-4" />
+                  <div className="rounded-2xl border border-zinc-200/90 bg-white/80 p-4 shadow-sm backdrop-blur-sm">
+                    <p className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-900">
+                      <ClipboardCheck className="h-4 w-4 shrink-0 text-zinc-600" />
                       الجولات
                     </p>
-                    <p className="mt-1.5 text-xs leading-6 text-white/80">تنفيذ الجولة ميدانيًا بخطوات واضحة وسريعة.</p>
+                    <p className="mt-2 text-sm font-medium leading-7 text-zinc-600">
+                      تنفيذ الجولة ميدانيًا بخطوات واضحة وسريعة.
+                    </p>
                   </div>
-                  <div className="rounded-2xl border border-white/20 bg-white/10 p-3 backdrop-blur">
-                    <p className="inline-flex items-center gap-2 text-xs font-semibold text-indigo-100">
-                      <FileText className="h-4 w-4" />
+                  <div className="rounded-2xl border border-zinc-200/90 bg-white/80 p-4 shadow-sm backdrop-blur-sm">
+                    <p className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-900">
+                      <FileText className="h-4 w-4 shrink-0 text-zinc-600" />
                       التقارير
                     </p>
-                    <p className="mt-1.5 text-xs leading-6 text-white/80">إنشاء تقرير فوري قابل للتصدير والمشاركة.</p>
+                    <p className="mt-2 text-sm font-medium leading-7 text-zinc-600">
+                      إنشاء تقرير فوري قابل للتصدير والمشاركة.
+                    </p>
                   </div>
-                  <div className="rounded-2xl border border-white/20 bg-white/10 p-3 backdrop-blur">
-                    <p className="inline-flex items-center gap-2 text-xs font-semibold text-indigo-100">
-                      <BarChart3 className="h-4 w-4" />
+                  <div className="rounded-2xl border border-zinc-200/90 bg-white/80 p-4 shadow-sm backdrop-blur-sm">
+                    <p className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-900">
+                      <BarChart3 className="h-4 w-4 shrink-0 text-zinc-600" />
                       الإحصائيات
                     </p>
-                    <p className="mt-1.5 text-xs leading-6 text-white/80">عرض مؤشرات الأداء لدعم القرار الإداري.</p>
+                    <p className="mt-2 text-sm font-medium leading-7 text-zinc-600">
+                      عرض مؤشرات الأداء لدعم القرار الإداري.
+                    </p>
                   </div>
                 </motion.div>
 
-                <button
+                <motion.button
                   type="button"
                   onClick={() => setShowIntro(false)}
-                  className="mx-auto mt-7 flex min-h-11 items-center justify-center rounded-xl bg-white px-7 py-2.5 text-sm font-bold text-zinc-900 shadow-lg shadow-white/20 transition-transform active:scale-[0.98]"
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.36, duration: 0.35 }}
+                  className="mx-auto mt-8 flex min-h-12 min-w-[12rem] items-center justify-center gap-2 rounded-xl bg-zinc-900 px-8 py-3 text-base font-bold text-white shadow-lg shadow-zinc-900/20 ring-1 ring-zinc-950/10 transition-[transform,box-shadow] hover:bg-zinc-800 hover:shadow-xl active:scale-[0.98]"
                 >
+                  <Sparkles className="h-4 w-4 shrink-0 text-amber-200" aria-hidden />
                   دخول النظام
-                </button>
+                </motion.button>
               </div>
             </motion.section>
           )}
@@ -800,48 +816,31 @@ export default function App() {
                       );
                     })}
                   </div>
-                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <label className="block">
-                      <span className="mb-1 block text-[11px] font-semibold text-zinc-600">البريد لإرسال التقرير (اختياري)</span>
-                      <div className="relative">
-                        <Mail className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                        <input
-                          type="email"
-                          dir="ltr"
-                          value={data.email ?? ""}
-                          onChange={(e) => setData((prev) => ({ ...prev, email: e.target.value.trim() }))}
-                          placeholder="name@example.com"
-                          className="w-full rounded-lg border border-zinc-200 bg-white py-2 pr-8 pl-2 text-xs outline-none focus:border-zinc-900"
-                        />
-                      </div>
-                    </label>
-                    <label className="block">
-                      <span className="mb-1 block text-[11px] font-semibold text-zinc-600">خط الأساس السابق ٪ (اختياري)</span>
-                      <div className="relative">
-                        <Target className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          value={typeof data.baselinePercentage === "number" ? data.baselinePercentage : ""}
-                          onChange={(e) =>
-                            setData((prev) => {
-                              if (e.target.value === "") return { ...prev, baselinePercentage: null };
-                              const numeric = Number(e.target.value);
-                              if (!Number.isFinite(numeric)) return { ...prev, baselinePercentage: null };
-                              return { ...prev, baselinePercentage: Math.max(0, Math.min(100, numeric)) };
-                            })
-                          }
-                          placeholder="85"
-                          className="w-full rounded-lg border border-zinc-200 bg-white py-2 pr-8 pl-2 text-xs outline-none focus:border-zinc-900"
-                        />
-                      </div>
-                    </label>
-                  </div>
                 </section>
               )}
 
               {setupWizardStep === 2 && (
+                <section className="rounded-xl border border-zinc-200 bg-white p-4">
+                  <h2 className="mb-1 text-sm font-semibold">البريد لإرسال التقرير</h2>
+                  <p className="mb-4 text-[11px] text-zinc-500">اختياري — لمراجعة أو إرسال نسخة من التقرير لاحقًا</p>
+                  <label className="block max-w-md">
+                    <span className="mb-1 block text-[11px] font-semibold text-zinc-600">عنوان البريد (اختياري)</span>
+                    <div className="relative">
+                      <Mail className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                      <input
+                        type="email"
+                        dir="ltr"
+                        value={data.email ?? ""}
+                        onChange={(e) => setData((prev) => ({ ...prev, email: e.target.value.trim() }))}
+                        placeholder="name@example.com"
+                        className="w-full rounded-lg border border-zinc-200 bg-white py-2 pr-8 pl-2 text-xs outline-none focus:border-zinc-900"
+                      />
+                    </div>
+                  </label>
+                </section>
+              )}
+
+              {setupWizardStep === 3 && (
                 <section className="rounded-xl border border-zinc-200 bg-white p-4">
                   <h2 className="mb-1 text-sm font-semibold">التاريخ</h2>
                   <p className="mb-4 text-[11px] text-zinc-500">اختر يوم الزيارة</p>
@@ -887,7 +886,7 @@ export default function App() {
                 </section>
               )}
 
-              {setupWizardStep === 3 && (
+              {setupWizardStep === 4 && (
                 <section className="rounded-xl border border-zinc-200 bg-white p-4">
                   <h2 className="mb-1 text-sm font-semibold">بنود التقييم</h2>
                   <p className="mb-3 text-[11px] text-zinc-500">ألغِ تحديد ما لا يخص هذه الزيارة</p>
@@ -1225,38 +1224,24 @@ export default function App() {
                   })}
                 </div>
 
-                {(typeof data.baselinePercentage === "number" || data.email) && (
-                  <div data-pdf-chunk className="mb-8 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {typeof data.baselinePercentage === "number" && (
-                      <div className="rounded-lg border border-indigo-100 bg-indigo-50/70 p-3">
-                        <p className="text-[11px] text-indigo-700">مقارنة خط الأساس</p>
-                        <p className="mt-1 text-sm font-semibold text-indigo-950">
-                          الحالي {totalScoreInfo.percentage}% مقابل {data.baselinePercentage}%
-                        </p>
-                        <p className="mt-1 text-xs text-indigo-700">
-                          الفرق: {baselineDelta && baselineDelta > 0 ? "+" : ""}
-                          {baselineDelta ?? 0} نقطة
-                        </p>
-                      </div>
-                    )}
-                    {data.email && (
-                      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
-                        <p className="text-[11px] text-zinc-600">إرسال التقرير إلى</p>
-                        <p className="mt-1 text-sm font-semibold text-zinc-900" dir="ltr">
-                          {data.email}
-                        </p>
-                        <a
-                          href={`mailto:${data.email}?subject=${encodeURIComponent(`تقرير جولة تفتيشية - ${data.hospital}`)}&body=${encodeURIComponent(
-                            `نتيجة الجولة الحالية: ${totalScoreInfo.percentage}%\nالتاريخ: ${data.date}\nالمنشأة: ${data.hospital}`,
-                          )}`}
-                          className="mt-2 inline-flex rounded-md border border-zinc-300 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700"
-                        >
-                          فتح البريد
-                        </a>
-                      </div>
-                    )}
+                {data.email ? (
+                  <div data-pdf-chunk className="mb-8">
+                    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 sm:max-w-md">
+                      <p className="text-[11px] text-zinc-600">إرسال التقرير إلى</p>
+                      <p className="mt-1 text-sm font-semibold text-zinc-900" dir="ltr">
+                        {data.email}
+                      </p>
+                      <a
+                        href={`mailto:${data.email}?subject=${encodeURIComponent(`تقرير جولة تفتيشية - ${data.hospital}`)}&body=${encodeURIComponent(
+                          `نتيجة الجولة الحالية: ${totalScoreInfo.percentage}%\nالتاريخ: ${data.date}\nالمنشأة: ${data.hospital}`,
+                        )}`}
+                        className="mt-2 inline-flex rounded-md border border-zinc-300 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700"
+                      >
+                        فتح البريد
+                      </a>
+                    </div>
                   </div>
-                )}
+                ) : null}
 
                 <div className="space-y-10">
                   {activeSections.map((section) => {
@@ -1374,13 +1359,15 @@ export default function App() {
                   >
                     {presIndex === 0 && (
                       <div className="text-center">
-                        <img
-                          src={MHC_LOGO_PATH}
-                          alt=""
-                          className="mx-auto mb-6 h-14 w-auto max-w-[min(100%,280px)] object-contain brightness-0 invert"
-                          width={404}
-                          height={124}
-                        />
+                        <div className="mx-auto mb-6 inline-block rounded-2xl bg-white px-6 py-3 shadow-lg ring-1 ring-white/20">
+                          <img
+                            src={MHC_LOGO_PATH}
+                            alt=""
+                            className="mx-auto h-14 w-auto max-w-[min(100%,260px)] object-contain"
+                            width={404}
+                            height={124}
+                          />
+                        </div>
                         <h1 className="text-2xl font-bold leading-snug sm:text-3xl">{data.hospital}</h1>
                         <p className="mt-2 text-sm text-white/50">{data.date}</p>
                         <p className="mt-8 text-5xl font-bold tabular-nums sm:text-6xl">{totalScoreInfo.percentage}%</p>
@@ -1480,7 +1467,7 @@ export default function App() {
                 السابق
               </button>
             ) : null}
-            {setupWizardStep < 3 ? (
+            {setupWizardStep < 4 ? (
               <button
                 type="button"
                 disabled={!canSetupNext}

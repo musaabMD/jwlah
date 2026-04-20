@@ -1,21 +1,15 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# جولة التفتيش — الطب الوقائي (Jawalah MHC)
 
-# Run and deploy your AI Studio app
+تطبيق ويب لتقييم الجولات الإشرافية للمنشآت الصحية خلال موسم الحج، مع تقارير وطباعة PDF وعروض تقديمية.
 
-This contains everything you need to run your app locally.
+**النشر:** [jwlah.vercel.app](https://jwlah.vercel.app/)
 
-View your app in AI Studio: https://ai.studio/apps/d77fa2dd-1ee1-486a-8363-8045c6d7ce97
+## التشغيل محليًا
 
-## Run Locally
+1. تثبيت الاعتمادات: `npm install`
+2. إنشاء `.env.local` وتعيين `GEMINI_API_KEY` إن وُجد استخدام للنموذج
+3. التشغيل: `npm run dev`
 
-**Prerequisites:**  Node.js
+## البناء
 
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
-# jwlah
+`npm run build`

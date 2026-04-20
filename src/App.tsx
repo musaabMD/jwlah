@@ -20,6 +20,7 @@ import {
   Sparkles,
   FileText,
   BarChart3,
+  LogIn,
 } from "lucide-react";
 import { INSPECTORS, HOSPITALS, SECTIONS } from "./constants";
 import { InspectionData, ScoreValue } from "./types";
@@ -392,29 +393,18 @@ export default function App() {
                 <ChevronRight className="h-4 w-4" />
               </button>
             )}
-            {step !== "home" && (
-              <button
-                type="button"
-                onClick={() => {
-                  setHomeMsg(null);
-                  setStep("home");
-                }}
-                className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-700 active:bg-zinc-100"
-                aria-label="القائمة الرئيسية"
-              >
-                <LayoutGrid className="h-4 w-4" />
-              </button>
-            )}
-            {(step === "setup" || step === "history") && (
-              <button
-                type="button"
-                onClick={() => setStep(step === "history" ? "setup" : "history")}
-                className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-700 active:bg-zinc-100"
-                aria-label={step === "history" ? "جولة جديدة" : "السجل"}
-              >
-                {step === "history" ? <ClipboardCheck className="h-4 w-4" /> : <History className="h-4 w-4" />}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => {
+                setHomeMsg(null);
+                if (step === "home") window.scrollTo({ top: 0, behavior: "smooth" });
+                else setStep("home");
+              }}
+              className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-700 active:bg-zinc-100"
+              aria-label="القائمة الرئيسية"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
             {step === "report" && (
               <button
                 type="button"
@@ -448,108 +438,91 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.4 }}
-              className="relative flex min-h-[86dvh] items-center justify-center overflow-hidden rounded-3xl border border-zinc-200/90 bg-gradient-to-b from-white via-zinc-50/90 to-zinc-100/80 px-4 py-8 text-zinc-900 antialiased shadow-sm [text-rendering:optimizeLegibility] sm:px-8"
+              transition={{ duration: 0.35 }}
+              className="flex min-h-[86dvh] items-center justify-center px-0 py-2 text-zinc-900 antialiased [text-rendering:optimizeLegibility] sm:py-4"
             >
               <motion.div
-                aria-hidden
-                className="pointer-events-none absolute -left-16 top-12 h-44 w-44 rounded-full bg-indigo-400/[0.12] blur-3xl"
-                animate={{ x: [0, 16, 0], y: [0, -8, 0] }}
-                transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-              />
-              <motion.div
-                aria-hidden
-                className="pointer-events-none absolute -right-14 bottom-10 h-52 w-52 rounded-full bg-emerald-400/[0.1] blur-3xl"
-                animate={{ x: [0, -14, 0], y: [0, 10, 0] }}
-                transition={{ duration: 9, repeat: Infinity, ease: "easeInOut" }}
-              />
-
-              <div className="relative z-10 w-full max-w-3xl">
-                <motion.div
-                  initial={{ opacity: 0, y: 14 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1, duration: 0.35 }}
-                  className="mx-auto w-fit rounded-full border border-zinc-200/90 bg-white/90 px-4 py-2 text-[13px] font-semibold text-zinc-800 shadow-sm backdrop-blur-sm"
-                >
-                  الإدارة التنفيذية للصحة العامة
-                </motion.div>
-
-                <motion.div
-                  initial={{ opacity: 0, y: 18 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.18, duration: 0.35 }}
-                  className="mt-5 text-center"
-                >
-                  <div className="mx-auto inline-flex max-w-full flex-col items-center rounded-2xl border border-zinc-200/90 bg-white px-5 py-4 shadow-[0_1px_0_0_rgba(0,0,0,0.04)] ring-1 ring-zinc-950/[0.04]">
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+                className="w-full max-w-md overflow-hidden rounded-[1.75rem] border border-zinc-200/90 bg-white shadow-[0_20px_50px_-12px_rgba(0,0,0,0.12)] ring-1 ring-zinc-950/[0.04] sm:max-w-lg"
+              >
+                <div className="relative bg-gradient-to-b from-zinc-50/90 to-white px-6 pb-2 pt-8 sm:px-10 sm:pt-10">
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-zinc-300/80 to-transparent"
+                  />
+                  <p className="text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                    الإدارة التنفيذية للصحة العامة
+                  </p>
+                  <div className="mt-7 flex justify-center">
                     <img
                       src={MHC_LOGO_PATH}
                       alt="شعار تجمع المدينة المنورة الصحي"
-                      className="mx-auto h-12 w-auto max-w-[min(100%,280px)] object-contain sm:h-14"
+                      className="h-[3.25rem] w-auto max-w-[min(100%,260px)] object-contain drop-shadow-sm sm:h-16"
                       width={404}
                       height={124}
                       loading="eager"
                       decoding="async"
                     />
                   </div>
-                  <p className="mt-4 inline-flex items-center gap-2 rounded-xl border border-zinc-200/90 bg-zinc-100/80 px-3 py-1.5 text-[13px] font-semibold text-zinc-800">
-                    <Sparkles className="h-3.5 w-3.5 shrink-0 text-zinc-600" />
-                    جولة
-                  </p>
-                  <h2 className="mt-5 text-balance text-2xl font-extrabold leading-snug tracking-tight text-zinc-950 sm:text-3xl md:text-4xl">
+                  <div className="mt-6 flex justify-center">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-900 px-3.5 py-1 text-[12px] font-semibold text-white shadow-sm">
+                      <Sparkles className="h-3.5 w-3.5 text-amber-200/95" aria-hidden />
+                      جولة تفتيشية
+                    </span>
+                  </div>
+                  <h2 className="mt-6 text-balance text-center text-[1.65rem] font-extrabold leading-[1.2] tracking-tight text-zinc-950 sm:text-[1.85rem]">
                     إنجاز الجولات إلكترونيًا
                   </h2>
-                  <p className="mx-auto mt-4 max-w-2xl text-[15px] font-medium leading-8 text-zinc-600 sm:text-base sm:leading-8">
-                    إنشاء تقارير الجولات مباشرة، ومتابعة الإحصائيات للإدارة التنفيذية للصحة العامة وأقسامها.
+                  <p className="mx-auto mt-3 max-w-md text-center text-[14px] leading-relaxed text-zinc-600 sm:text-[15px]">
+                    تقارير فورية، ومتابعة إحصائية للإدارة التنفيذية للصحة العامة وأقسامها.
                   </p>
-                </motion.div>
+                </div>
 
-                <motion.div
-                  initial={{ opacity: 0, y: 22 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.28, duration: 0.38 }}
-                  className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-3"
-                >
-                  <div className="rounded-2xl border border-zinc-200/90 bg-white/80 p-4 shadow-sm backdrop-blur-sm">
-                    <p className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-900">
-                      <ClipboardCheck className="h-4 w-4 shrink-0 text-zinc-600" />
-                      الجولات
-                    </p>
-                    <p className="mt-2 text-sm font-medium leading-7 text-zinc-600">
-                      تنفيذ الجولة ميدانيًا بخطوات واضحة وسريعة.
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-zinc-200/90 bg-white/80 p-4 shadow-sm backdrop-blur-sm">
-                    <p className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-900">
-                      <FileText className="h-4 w-4 shrink-0 text-zinc-600" />
-                      التقارير
-                    </p>
-                    <p className="mt-2 text-sm font-medium leading-7 text-zinc-600">
-                      إنشاء تقرير فوري قابل للتصدير والمشاركة.
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-zinc-200/90 bg-white/80 p-4 shadow-sm backdrop-blur-sm">
-                    <p className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-900">
-                      <BarChart3 className="h-4 w-4 shrink-0 text-zinc-600" />
-                      الإحصائيات
-                    </p>
-                    <p className="mt-2 text-sm font-medium leading-7 text-zinc-600">
-                      عرض مؤشرات الأداء لدعم القرار الإداري.
-                    </p>
-                  </div>
-                </motion.div>
+                <div className="border-t border-zinc-100 px-4 py-4 sm:px-6">
+                  <ul className="divide-y divide-zinc-100 overflow-hidden rounded-xl bg-zinc-50/70">
+                    <li className="flex gap-3 px-3 py-3.5 sm:px-4">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-zinc-200/80">
+                        <ClipboardCheck className="h-4 w-4 text-emerald-700" aria-hidden />
+                      </span>
+                      <div className="min-w-0 pt-0.5">
+                        <p className="text-sm font-semibold text-zinc-900">جولات ميدانية</p>
+                        <p className="mt-0.5 text-[13px] leading-relaxed text-zinc-600">خطوات واضحة من البداية حتى الختام.</p>
+                      </div>
+                    </li>
+                    <li className="flex gap-3 px-3 py-3.5 sm:px-4">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-zinc-200/80">
+                        <FileText className="h-4 w-4 text-sky-700" aria-hidden />
+                      </span>
+                      <div className="min-w-0 pt-0.5">
+                        <p className="text-sm font-semibold text-zinc-900">تقارير جاهزة</p>
+                        <p className="mt-0.5 text-[13px] leading-relaxed text-zinc-600">تصدير ومشاركة بسهولة.</p>
+                      </div>
+                    </li>
+                    <li className="flex gap-3 px-3 py-3.5 sm:px-4">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-zinc-200/80">
+                        <BarChart3 className="h-4 w-4 text-violet-700" aria-hidden />
+                      </span>
+                      <div className="min-w-0 pt-0.5">
+                        <p className="text-sm font-semibold text-zinc-900">مؤشرات وإحصاءات</p>
+                        <p className="mt-0.5 text-[13px] leading-relaxed text-zinc-600">دعم القرار الإداري.</p>
+                      </div>
+                    </li>
+                  </ul>
+                </div>
 
-                <motion.button
-                  type="button"
-                  onClick={() => setShowIntro(false)}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.36, duration: 0.35 }}
-                  className="mx-auto mt-8 flex min-h-12 min-w-[12rem] items-center justify-center gap-2 rounded-xl bg-zinc-900 px-8 py-3 text-base font-bold text-white shadow-lg shadow-zinc-900/20 ring-1 ring-zinc-950/10 transition-[transform,box-shadow] hover:bg-zinc-800 hover:shadow-xl active:scale-[0.98]"
-                >
-                  <Sparkles className="h-4 w-4 shrink-0 text-amber-200" aria-hidden />
-                  دخول النظام
-                </motion.button>
-              </div>
+                <div className="border-t border-zinc-100 bg-zinc-50/40 px-5 pb-6 pt-4 sm:px-8">
+                  <button
+                    type="button"
+                    onClick={() => setShowIntro(false)}
+                    className="flex min-h-[3rem] w-full items-center justify-center gap-2 rounded-2xl bg-zinc-900 px-5 text-[15px] font-bold text-white shadow-md shadow-zinc-900/15 transition-[transform,background-color] hover:bg-zinc-800 active:scale-[0.99]"
+                  >
+                    <LogIn className="h-[1.1rem] w-[1.1rem] shrink-0 opacity-90" aria-hidden />
+                    دخول النظام
+                  </button>
+                </div>
+              </motion.div>
             </motion.section>
           )}
 
@@ -569,6 +542,7 @@ export default function App() {
                     { id: "preventive", label: "الطب الوقائي", action: "open" as const },
                     { id: "env-health", label: "صحة البيئة", action: "soon" as const },
                     { id: "infectious", label: "الامراض المعدية", action: "soon" as const },
+                    { id: "occupational-health", label: "الصحة المهنية", action: "soon" as const },
                   ].map((item) => (
                     <button
                       key={item.id}
@@ -591,6 +565,16 @@ export default function App() {
                       )}
                     </button>
                   ))}
+                </div>
+                <div className="mt-4 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setStep("history")}
+                    className="inline-flex min-h-11 w-full max-w-sm items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-100 active:bg-zinc-100/80 sm:max-w-md"
+                  >
+                    <History className="h-4 w-4 shrink-0 text-zinc-600" aria-hidden />
+                    السجل
+                  </button>
                 </div>
               </section>
               {homeMsg && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{homeMsg}</p>}
@@ -682,7 +666,17 @@ export default function App() {
 
           {step === "setup" && (
             <motion.div key="setup" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
-              <div className="mx-auto w-full max-w-xs">
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => setStep("history")}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 shadow-sm active:bg-zinc-50"
+                >
+                  <History className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  السجل
+                </button>
+              </div>
+              <div className="mx-auto w-full min-w-0 max-w-full">
                 <div className="rounded-2xl border border-zinc-200/90 bg-white px-3 py-2 shadow-sm">
                   <div className="mb-2 flex items-center justify-center gap-2">
                     <span className="text-[10px] font-semibold tracking-wide text-zinc-500">إعداد الجولة</span>
@@ -694,7 +688,7 @@ export default function App() {
                     </span>
                   </div>
                   <div
-                    className="flex items-start justify-center"
+                    className="flex min-w-0 items-start justify-center"
                     role="group"
                     aria-label={`الخطوة ${setupWizardStep + 1} من ${SETUP_STEP_COUNT}`}
                   >
@@ -705,11 +699,11 @@ export default function App() {
                         <Fragment key={meta.label}>
                           {i > 0 ? (
                             <div
-                              className={`mx-0.5 mt-3.5 h-0.5 min-w-[0.75rem] flex-1 max-w-[2.75rem] rounded-full sm:max-w-none ${setupWizardStep >= i ? "bg-zinc-900" : "bg-zinc-200"}`}
+                              className={`mx-0.5 mt-3.5 h-0.5 min-w-[0.5rem] flex-1 max-w-[1.25rem] rounded-full sm:min-w-[0.75rem] sm:max-w-[2.75rem] md:max-w-none ${setupWizardStep >= i ? "bg-zinc-900" : "bg-zinc-200"}`}
                               aria-hidden
                             />
                           ) : null}
-                          <div className="flex w-[4.25rem] shrink-0 flex-col items-center gap-2 sm:w-[4.75rem]">
+                          <div className="flex w-[2.75rem] shrink-0 flex-col items-center gap-1.5 sm:w-[3.75rem] sm:gap-2 md:w-[4.25rem] lg:w-[4.75rem]">
                             <motion.span
                               initial={false}
                               animate={{ scale: current ? 1.04 : 1 }}

@@ -93,11 +93,12 @@ function loadSessionFromStorage(): {
     const o = parsed as Record<string, unknown>;
     if (o.v === DRAFT_STORAGE_VERSION && o.data && typeof o.data === "object") {
       const d = o.data as Partial<InspectionData>;
-      const step = normalizeAppStep(o.step);
-      const showIntro = step === "home" ? o.showIntro === true : false;
+      const persistedStep = normalizeAppStep(o.step);
+      /** Full page reload always opens الرئيسية; keep intro only if user was still on home + intro. */
+      const showIntro = persistedStep === "home" && o.showIntro === true;
       return {
         data: mergeDraftIntoBase(base, d),
-        step,
+        step: "home",
         setupWizardStep: clampWizardStep(o.setupWizardStep),
         inspectionStepIndex: Math.max(0, Math.round(Number(o.inspectionStepIndex)) || 0),
         showIntro,
@@ -109,13 +110,12 @@ function loadSessionFromStorage(): {
       Boolean(d.hospital?.trim()) ||
       (Array.isArray(d.inspectors) && d.inspectors.length > 0) ||
       hasScores;
-    const step: AppStep = hasScores ? "inspection" : hasWork ? "setup" : "home";
     return {
       data: mergeDraftIntoBase(base, d),
-      step,
+      step: "home",
       setupWizardStep: 0,
       inspectionStepIndex: 0,
-      showIntro: step === "home" && !hasWork,
+      showIntro: !hasWork,
     };
   } catch {
     return { data: base, step: "home", setupWizardStep: 0, inspectionStepIndex: 0, showIntro: true };
@@ -793,16 +793,6 @@ export default function App() {
                       )}
                     </button>
                   ))}
-                </div>
-                <div className="mt-4 flex justify-center">
-                  <button
-                    type="button"
-                    onClick={() => setStep("history")}
-                    className="inline-flex min-h-11 w-full max-w-sm items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-100 active:bg-zinc-100/80 sm:max-w-md"
-                  >
-                    <History className="h-4 w-4 shrink-0 text-zinc-600" aria-hidden />
-                    السجل
-                  </button>
                 </div>
               </section>
               {homeMsg && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{homeMsg}</p>}

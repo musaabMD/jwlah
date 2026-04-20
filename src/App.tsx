@@ -13,6 +13,14 @@ import {
   Presentation,
   History,
   Trash2,
+  FilePlus2,
+  Printer,
+  LayoutGrid,
+  Mail,
+  Target,
+  Sparkles,
+  FileText,
+  BarChart3,
 } from "lucide-react";
 import { INSPECTORS, HOSPITALS, SECTIONS } from "./constants";
 import { InspectionData, ScoreValue } from "./types";
@@ -22,15 +30,18 @@ import {
   countActiveQuestions,
   flattenQuestionSlides,
   getActiveSections,
+  getSectionCompletion,
   buildInspectionFlow,
   isFlowStepComplete,
   safeExportBase,
+  createEmptyInspectionData,
 } from "./inspection-utils";
 import { MHC_LOGO_PATH } from "./branding";
 import { downloadInspectionPptx } from "./export-pptx";
-import { downloadInspectionReportPdf } from "./pdf-export";
+import { downloadInspectionReportPdf, printInspectionReport } from "./pdf-export";
 
 const SETUP_STEP_COUNT = 4;
+const DRAFT_STORAGE_KEY = "tour_draft";
 
 const SETUP_WIZARD_STEPS = [
   { label: "الفريق" },
@@ -53,6 +64,20 @@ function todayLocalISO(): string {
 }
 
 /** Dates shown as tappable chips (no native date picker / dropdown). */
+const PRES_VARIANTS = {
+  enter: (dir: number) => ({
+    opacity: 0,
+    x: dir * 40,
+    filter: "blur(10px)",
+  }),
+  center: { opacity: 1, x: 0, filter: "blur(0px)" },
+  exit: (dir: number) => ({
+    opacity: 0,
+    x: dir * -40,
+    filter: "blur(10px)",
+  }),
+};
+
 function buildSetupDateStrip(): { iso: string; weekday: string; dayMonth: string }[] {
   const rows: { iso: string; weekday: string; dayMonth: string }[] = [];
   const base = new Date();
@@ -69,10 +94,12 @@ function buildSetupDateStrip(): { iso: string; weekday: string; dayMonth: string
 }
 
 export default function App() {
-  const [step, setStep] = useState<"setup" | "inspection" | "report" | "presentation" | "history">("setup");
+  const [showIntro, setShowIntro] = useState(true);
+  const [step, setStep] = useState<"home" | "setup" | "inspection" | "report" | "presentation" | "history">("home");
   const [inspectionStepIndex, setInspectionStepIndex] = useState(0);
   const [presIndex, setPresIndex] = useState(0);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const [homeMsg, setHomeMsg] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState<"pdf" | "pptx" | null>(null);
   /** معالج الإعداد: 0 فريق، 1 منشأة، 2 تاريخ، 3 بنود ثم بدء الجولة */
   const [setupWizardStep, setSetupWizardStep] = useState(0);
@@ -82,25 +109,11 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
-  const [data, setData] = useState<InspectionData>(() => {
-    const noon = new Date();
-    noon.setHours(12, 0, 0, 0);
-    const iso = localISODate(noon);
-    return {
-    inspectors: [],
-    hospital: "",
-    date: iso,
-    day: new Intl.DateTimeFormat("ar-SA", { weekday: "long" }).format(new Date(iso + "T12:00:00")),
-    scores: {},
-    itemNotes: {},
-    sectionNotes: {},
-    sectionImages: {},
-    skippedQuestionIds: [],
-  };
-  });
+  const [data, setData] = useState<InspectionData>(() => createEmptyInspectionData());
 
   const reportRef = useRef<HTMLDivElement>(null);
   const setupDateStripScrollRef = useRef<HTMLDivElement>(null);
+  const presDirRef = useRef(1);
 
   const activeSections = useMemo(() => getActiveSections(data), [data.skippedQuestionIds]);
   const totalScoreInfo = useMemo(() => calculateGlobalMetrics(data), [data.scores, data.skippedQuestionIds]);
@@ -109,6 +122,22 @@ export default function App() {
   const presTotal = questionSlides.length + 2;
   const inspectionFlow = useMemo(() => buildInspectionFlow(data), [data.skippedQuestionIds]);
   const setupDateStrip = useMemo(() => buildSetupDateStrip(), []);
+
+  useEffect(() => {
+    const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+    if (!raw) return;
+    try {
+      const draft = JSON.parse(raw) as InspectionData;
+      if (!draft || typeof draft !== "object") return;
+      setData((prev) => ({
+        ...prev,
+        ...draft,
+        skippedQuestionIds: draft.skippedQuestionIds ?? prev.skippedQuestionIds ?? [],
+      }));
+    } catch (err) {
+      console.error("failed_to_restore_draft", err);
+    }
+  }, []);
 
   useEffect(() => {
     if (step !== "report") return;
@@ -136,6 +165,10 @@ export default function App() {
   }, [inspectionFlow.length]);
 
   useEffect(() => {
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(data));
+  }, [data]);
+
+  useEffect(() => {
     if (step !== "setup" || setupWizardStep !== 2) return;
     const t = window.setTimeout(() => {
       const el = setupDateStripScrollRef.current?.querySelector<HTMLElement>(`[data-date-iso="${todayLocalISO()}"]`);
@@ -143,6 +176,32 @@ export default function App() {
     }, 100);
     return () => window.clearTimeout(t);
   }, [step, setupWizardStep]);
+
+  useEffect(() => {
+    if (step !== "presentation") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowDown" || e.key === " " || e.key === "PageDown") {
+        e.preventDefault();
+        presDirRef.current = 1;
+        setPresIndex((i) => Math.min(presTotal - 1, i + 1));
+      } else if (e.key === "ArrowUp" || e.key === "PageUp") {
+        e.preventDefault();
+        presDirRef.current = -1;
+        setPresIndex((i) => Math.max(0, i - 1));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [step, presTotal]);
+
+  const startNewTour = () => {
+    setData(createEmptyInspectionData());
+    localStorage.removeItem(DRAFT_STORAGE_KEY);
+    setSetupWizardStep(0);
+    setInspectionStepIndex(0);
+    setExportMsg(null);
+    setStep("setup");
+  };
 
   const deleteFromHistory = (id: string) => {
     setHistory((prev) => {
@@ -182,7 +241,7 @@ export default function App() {
       await downloadInspectionReportPdf(reportRef.current, safeExportBase(data));
     } catch (e) {
       console.error(e);
-      setExportMsg("تعذر إنشاء ملف PDF. جرّب تحديث الصفحة أو تصدير PowerPoint.");
+      setExportMsg("تعذر إنشاء ملف PDF. جرّب «طباعة» ثم اختر حفظ PDF، أو صدّر PowerPoint.");
     } finally {
       setExportBusy(null);
     }
@@ -225,6 +284,17 @@ export default function App() {
   };
 
   const flowStep = inspectionFlow[inspectionStepIndex];
+  const activeSectionSummaries = useMemo(
+    () =>
+      activeSections.map((section) => {
+        const completion = getSectionCompletion(section.id, data);
+        const firstStepIndex = inspectionFlow.findIndex((item) => item.sectionId === section.id);
+        return { section, ...completion, firstStepIndex };
+      }),
+    [activeSections, data, inspectionFlow],
+  );
+  const completedSectionCount = activeSectionSummaries.filter((s) => s.complete).length;
+  const currentSectionIndex = flowStep ? activeSections.findIndex((s) => s.id === flowStep.sectionId) : -1;
   const inspectionProgressPct =
     inspectionFlow.length > 0
       ? Math.min(100, Math.round(((inspectionStepIndex + 1) / inspectionFlow.length) * 100))
@@ -242,6 +312,8 @@ export default function App() {
   const canProceedStep = flowStep ? isFlowStepComplete(flowStep, data) : false;
   const finishInspection =
     inspectionFlow.length > 0 && inspectionStepIndex === inspectionFlow.length - 1 && flowStep?.kind === "section-wrap";
+  const baselineDelta =
+    typeof data.baselinePercentage === "number" ? totalScoreInfo.percentage - data.baselinePercentage : null;
 
   const scoreLabel = (qid: string) => {
     const s = data.scores[qid];
@@ -250,23 +322,89 @@ export default function App() {
     if (s === "na") return "N/A";
     return "—";
   };
+  const historyStats = useMemo(() => {
+    const tours = history as Array<{ totalScore?: number; scores?: Record<string, ScoreValue> }>;
+    const count = tours.length;
+    const avg = count > 0 ? Math.round(tours.reduce((sum, t) => sum + (t.totalScore ?? 0), 0) / count) : 0;
+    return { count, avg };
+  }, [history]);
+  const canGoBackFromHeader = !showIntro && step !== "home";
+  const goBackFromHeader = () => {
+    if (step === "setup") {
+      if (setupWizardStep > 0) {
+        setSetupWizardStep((s) => s - 1);
+      } else {
+        setStep("home");
+      }
+      return;
+    }
+    if (step === "inspection") {
+      if (inspectionStepIndex > 0) {
+        setInspectionStepIndex((i) => i - 1);
+      } else {
+        setStep("setup");
+      }
+      window.scrollTo(0, 0);
+      return;
+    }
+    if (step === "report") {
+      setStep("inspection");
+      window.scrollTo(0, 0);
+      return;
+    }
+    if (step === "history") {
+      setStep("setup");
+      return;
+    }
+    if (step === "presentation") {
+      setStep("report");
+      return;
+    }
+    setStep("home");
+  };
 
   return (
-    <div className="min-h-[100dvh] bg-zinc-50 text-zinc-900 overflow-x-hidden" dir="rtl">
-      <header className="sticky top-0 z-50 border-b border-zinc-200/80 bg-white/90 backdrop-blur-md">
+    <div className="min-h-[100dvh] bg-zinc-50 text-zinc-900 overflow-x-hidden print:bg-white" dir="rtl">
+      {!showIntro && (
+        <header className="sticky top-0 z-50 border-b border-zinc-200/80 bg-white/90 backdrop-blur-md print:hidden">
         <div className="mx-auto flex max-w-lg items-center justify-between gap-2 px-3 py-2.5 sm:max-w-2xl sm:px-4">
           <div className="flex min-w-0 items-center gap-2">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-white">
               <ClipboardCheck className="h-4 w-4" />
             </div>
             <div className="min-w-0">
-              <h1 className="truncate text-sm font-semibold leading-tight">الطب الوقائي — جولة 1447هـ</h1>
-              {data.inspectors.length > 0 && (
+              <h1 className="truncate text-sm font-semibold leading-tight">
+                {step === "home" ? "نماذج الجولات" : "الطب الوقائي — جولة 1447هـ"}
+              </h1>
+              {step !== "home" && data.inspectors.length > 0 && (
                 <p className="truncate text-[11px] text-zinc-500">{data.inspectors.join(" · ")}</p>
               )}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {canGoBackFromHeader && (
+              <button
+                type="button"
+                onClick={goBackFromHeader}
+                className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-700 active:bg-zinc-100"
+                aria-label="رجوع"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            )}
+            {step !== "home" && (
+              <button
+                type="button"
+                onClick={() => {
+                  setHomeMsg(null);
+                  setStep("home");
+                }}
+                className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-700 active:bg-zinc-100"
+                aria-label="القائمة الرئيسية"
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </button>
+            )}
             {(step === "setup" || step === "history") && (
               <button
                 type="button"
@@ -275,6 +413,16 @@ export default function App() {
                 aria-label={step === "history" ? "جولة جديدة" : "السجل"}
               >
                 {step === "history" ? <ClipboardCheck className="h-4 w-4" /> : <History className="h-4 w-4" />}
+              </button>
+            )}
+            {step === "report" && (
+              <button
+                type="button"
+                onClick={startNewTour}
+                className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-zinc-800 active:bg-zinc-50"
+              >
+                <FilePlus2 className="h-3.5 w-3.5" />
+                جولة جديدة
               </button>
             )}
             {(step === "inspection" || step === "report") && (
@@ -289,10 +437,150 @@ export default function App() {
             )}
           </div>
         </div>
-      </header>
+        </header>
+      )}
 
-      <main className="mx-auto max-w-lg px-3 py-4 pb-28 sm:max-w-2xl sm:px-4 sm:py-5">
+      <main className="mx-auto max-w-lg px-3 py-4 pb-28 print:max-w-none print:px-0 print:py-0 print:pb-0 sm:max-w-2xl sm:px-4 sm:py-5">
         <AnimatePresence mode="wait">
+          {showIntro && (
+            <motion.section
+              key="intro"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.4 }}
+              className="relative flex min-h-[86dvh] items-center justify-center overflow-hidden rounded-3xl border border-zinc-200/70 bg-gradient-to-b from-zinc-950 via-zinc-900 to-zinc-950 px-4 py-8 text-white sm:px-8"
+            >
+              <motion.div
+                aria-hidden
+                className="pointer-events-none absolute -left-12 top-20 h-40 w-40 rounded-full bg-indigo-400/30 blur-3xl"
+                animate={{ x: [0, 20, 0], y: [0, -10, 0] }}
+                transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+              />
+              <motion.div
+                aria-hidden
+                className="pointer-events-none absolute -right-10 bottom-16 h-48 w-48 rounded-full bg-fuchsia-400/25 blur-3xl"
+                animate={{ x: [0, -18, 0], y: [0, 12, 0] }}
+                transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
+              />
+
+              <div className="relative z-10 w-full max-w-3xl">
+                <motion.div
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1, duration: 0.35 }}
+                  className="mx-auto w-fit rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-xs font-semibold text-white/90 backdrop-blur"
+                >
+                  الإدارة التنفيذية للصحة العامة
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 18 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.18, duration: 0.35 }}
+                  className="mt-5 text-center"
+                >
+                  <img
+                    src={MHC_LOGO_PATH}
+                    alt=""
+                    className="mx-auto h-12 w-auto object-contain brightness-0 invert sm:h-14"
+                    width={404}
+                    height={124}
+                  />
+                  <p className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-1 text-xs font-semibold text-indigo-100 ring-1 ring-white/20">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    جولة
+                  </p>
+                  <h2 className="mt-4 text-2xl font-black leading-relaxed sm:text-4xl">نظام إلكتروني لإنجاز الجولات بشكل إلكتروني</h2>
+                  <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-white/80 sm:text-base">
+                    إنشاء تقارير الجولات بشكل مباشر، وإحصائيات الجولات للإدارة التنفيذية للصحة العامة وأقسامها.
+                  </p>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 22 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.28, duration: 0.38 }}
+                  className="mt-7 grid grid-cols-1 gap-2.5 sm:grid-cols-3"
+                >
+                  <div className="rounded-2xl border border-white/20 bg-white/10 p-3 backdrop-blur">
+                    <p className="inline-flex items-center gap-2 text-xs font-semibold text-indigo-100">
+                      <ClipboardCheck className="h-4 w-4" />
+                      الجولات
+                    </p>
+                    <p className="mt-1.5 text-xs leading-6 text-white/80">تنفيذ الجولة ميدانيًا بخطوات واضحة وسريعة.</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/20 bg-white/10 p-3 backdrop-blur">
+                    <p className="inline-flex items-center gap-2 text-xs font-semibold text-indigo-100">
+                      <FileText className="h-4 w-4" />
+                      التقارير
+                    </p>
+                    <p className="mt-1.5 text-xs leading-6 text-white/80">إنشاء تقرير فوري قابل للتصدير والمشاركة.</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/20 bg-white/10 p-3 backdrop-blur">
+                    <p className="inline-flex items-center gap-2 text-xs font-semibold text-indigo-100">
+                      <BarChart3 className="h-4 w-4" />
+                      الإحصائيات
+                    </p>
+                    <p className="mt-1.5 text-xs leading-6 text-white/80">عرض مؤشرات الأداء لدعم القرار الإداري.</p>
+                  </div>
+                </motion.div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowIntro(false)}
+                  className="mx-auto mt-7 flex min-h-11 items-center justify-center rounded-xl bg-white px-7 py-2.5 text-sm font-bold text-zinc-900 shadow-lg shadow-white/20 transition-transform active:scale-[0.98]"
+                >
+                  دخول النظام
+                </button>
+              </div>
+            </motion.section>
+          )}
+
+          {step === "home" && !showIntro && (
+            <motion.div
+              key="home"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="space-y-4"
+            >
+              <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
+                <h2 className="text-base font-semibold">اختر نموذج الجولة</h2>
+                <p className="mt-1 text-[12px] text-zinc-500">اختر النموذج المتاح، وبقية النماذج قريبًا.</p>
+                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {[
+                    { id: "preventive", label: "الطب الوقائي", action: "open" as const },
+                    { id: "env-health", label: "صحة البيئة", action: "soon" as const },
+                    { id: "infectious", label: "الامراض المعدية", action: "soon" as const },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        if (item.action === "open") {
+                          setHomeMsg(null);
+                          setStep("setup");
+                          return;
+                        }
+                        setHomeMsg(`${item.label}: قريبا`);
+                      }}
+                      className="flex min-h-[3rem] items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-right text-sm font-medium text-zinc-800 hover:bg-zinc-100"
+                    >
+                      <span>{item.label}</span>
+                      {item.action === "open" ? (
+                        <span className="rounded-md bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">متاح</span>
+                      ) : (
+                        <span className="rounded-md bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold text-zinc-700">قريبا</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </section>
+              {homeMsg && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{homeMsg}</p>}
+            </motion.div>
+          )}
+
           {step === "history" && (
             <motion.div
               key="history"
@@ -306,18 +594,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    const fresh = todayLocalISO();
-                    setData({
-                      inspectors: [],
-                      hospital: "",
-                      date: fresh,
-                      day: new Intl.DateTimeFormat("ar-SA", { weekday: "long" }).format(new Date(`${fresh}T12:00:00`)),
-                      scores: {},
-                      itemNotes: {},
-                      sectionNotes: {},
-                      sectionImages: {},
-                      skippedQuestionIds: [],
-                    });
+                    setData(createEmptyInspectionData());
                     setSetupWizardStep(0);
                     setStep("setup");
                   }}
@@ -325,6 +602,16 @@ export default function App() {
                 >
                   + جديدة
                 </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-zinc-200 bg-white p-2.5">
+                  <p className="text-[11px] text-zinc-500">إجمالي النماذج</p>
+                  <p className="mt-1 text-lg font-bold tabular-nums">{historyStats.count}</p>
+                </div>
+                <div className="rounded-lg border border-zinc-200 bg-white p-2.5">
+                  <p className="text-[11px] text-zinc-500">متوسط الامتثال</p>
+                  <p className="mt-1 text-lg font-bold tabular-nums">{historyStats.avg}%</p>
+                </div>
               </div>
               {(history as { id: string }[]).length === 0 ? (
                 <p className="rounded-xl border border-dashed border-zinc-200 py-12 text-center text-sm text-zinc-500">لا توجد جولات محفوظة</p>
@@ -352,6 +639,8 @@ export default function App() {
                               day:
                                 t.day ??
                                 new Intl.DateTimeFormat("ar-SA", { weekday: "long" }).format(new Date((t.date ?? "") + "T12:00:00")),
+                              email: t.email ?? "",
+                              baselinePercentage: typeof t.baselinePercentage === "number" ? t.baselinePercentage : null,
                               scores: t.scores ?? {},
                               itemNotes: t.itemNotes ?? {},
                               sectionNotes: t.sectionNotes ?? {},
@@ -511,6 +800,44 @@ export default function App() {
                       );
                     })}
                   </div>
+                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] font-semibold text-zinc-600">البريد لإرسال التقرير (اختياري)</span>
+                      <div className="relative">
+                        <Mail className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                        <input
+                          type="email"
+                          dir="ltr"
+                          value={data.email ?? ""}
+                          onChange={(e) => setData((prev) => ({ ...prev, email: e.target.value.trim() }))}
+                          placeholder="name@example.com"
+                          className="w-full rounded-lg border border-zinc-200 bg-white py-2 pr-8 pl-2 text-xs outline-none focus:border-zinc-900"
+                        />
+                      </div>
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] font-semibold text-zinc-600">خط الأساس السابق ٪ (اختياري)</span>
+                      <div className="relative">
+                        <Target className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={typeof data.baselinePercentage === "number" ? data.baselinePercentage : ""}
+                          onChange={(e) =>
+                            setData((prev) => {
+                              if (e.target.value === "") return { ...prev, baselinePercentage: null };
+                              const numeric = Number(e.target.value);
+                              if (!Number.isFinite(numeric)) return { ...prev, baselinePercentage: null };
+                              return { ...prev, baselinePercentage: Math.max(0, Math.min(100, numeric)) };
+                            })
+                          }
+                          placeholder="85"
+                          className="w-full rounded-lg border border-zinc-200 bg-white py-2 pr-8 pl-2 text-xs outline-none focus:border-zinc-900"
+                        />
+                      </div>
+                    </label>
+                  </div>
                 </section>
               )}
 
@@ -638,6 +965,57 @@ export default function App() {
                     style={{ width: `${inspectionProgressPct}%` }}
                   />
                 </div>
+                <p className="mt-3 text-xs text-zinc-500">
+                  الأقسام المكتملة: <span className="font-semibold text-zinc-800">{completedSectionCount}</span> من{" "}
+                  <span className="font-semibold text-zinc-800">{activeSectionSummaries.length}</span>
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-zinc-700">اختر القسم</h3>
+                  {currentSectionIndex >= 0 ? (
+                    <span className="text-[11px] text-zinc-500">
+                      الحالي: {currentSectionIndex + 1}/{activeSections.length}
+                    </span>
+                  ) : null}
+                </div>
+                <select
+                  value={flowStep?.sectionId ?? ""}
+                  onChange={(e) => {
+                    const selected = activeSectionSummaries.find((row) => row.section.id === e.target.value);
+                    if (!selected || selected.firstStepIndex < 0) return;
+                    setInspectionStepIndex(selected.firstStepIndex);
+                    window.scrollTo(0, 0);
+                  }}
+                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 outline-none focus:border-zinc-900"
+                >
+                  {activeSectionSummaries.map((row) => (
+                    <option key={row.section.id} value={row.section.id}>
+                      {row.section.title} — {row.answered}/{row.total}
+                      {row.complete ? " (مكتمل)" : ""}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {activeSectionSummaries.map((row) => (
+                    <div
+                      key={row.section.id}
+                      className={`rounded-lg border px-2 py-1.5 text-[11px] ${
+                        flowStep?.sectionId === row.section.id
+                          ? "border-zinc-900 bg-zinc-900 text-white"
+                          : row.complete
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                            : "border-zinc-200 bg-zinc-50 text-zinc-700"
+                      }`}
+                    >
+                      <p className="line-clamp-1 font-semibold">{row.section.title}</p>
+                      <p className="mt-0.5 tabular-nums">
+                        {row.answered}/{row.total}
+                      </p>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <AnimatePresence mode="wait">
@@ -761,14 +1139,17 @@ export default function App() {
 
           {step === "report" && (
             <motion.div key="report" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 pb-8">
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+              <div className="flex flex-col gap-2 print:hidden sm:flex-row sm:flex-wrap sm:justify-end">
                 <button
                   type="button"
-                  onClick={() => setStep("presentation")}
-                  className="flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold"
+                  onClick={() => {
+                    presDirRef.current = 1;
+                    setStep("presentation");
+                  }}
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold shadow-sm"
                 >
                   <Presentation className="h-3.5 w-3.5" />
-                  عرض
+                  عرض تفاعلي
                 </button>
                 <button
                   type="button"
@@ -788,8 +1169,21 @@ export default function App() {
                   <Download className="h-3.5 w-3.5" />
                   {exportBusy === "pdf" ? "…" : "PDF"}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExportMsg(null);
+                    printInspectionReport();
+                  }}
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  طباعة / PDF
+                </button>
               </div>
-              {exportMsg && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-800">{exportMsg}</p>}
+              {exportMsg && (
+                <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-800 print:hidden">{exportMsg}</p>
+              )}
 
               <div ref={reportRef} className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-8" id="official-report">
                 <div data-pdf-chunk className="mb-6 flex flex-col gap-4 border-b border-zinc-100 pb-6 sm:flex-row sm:items-start sm:justify-between">
@@ -830,6 +1224,39 @@ export default function App() {
                     );
                   })}
                 </div>
+
+                {(typeof data.baselinePercentage === "number" || data.email) && (
+                  <div data-pdf-chunk className="mb-8 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {typeof data.baselinePercentage === "number" && (
+                      <div className="rounded-lg border border-indigo-100 bg-indigo-50/70 p-3">
+                        <p className="text-[11px] text-indigo-700">مقارنة خط الأساس</p>
+                        <p className="mt-1 text-sm font-semibold text-indigo-950">
+                          الحالي {totalScoreInfo.percentage}% مقابل {data.baselinePercentage}%
+                        </p>
+                        <p className="mt-1 text-xs text-indigo-700">
+                          الفرق: {baselineDelta && baselineDelta > 0 ? "+" : ""}
+                          {baselineDelta ?? 0} نقطة
+                        </p>
+                      </div>
+                    )}
+                    {data.email && (
+                      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                        <p className="text-[11px] text-zinc-600">إرسال التقرير إلى</p>
+                        <p className="mt-1 text-sm font-semibold text-zinc-900" dir="ltr">
+                          {data.email}
+                        </p>
+                        <a
+                          href={`mailto:${data.email}?subject=${encodeURIComponent(`تقرير جولة تفتيشية - ${data.hospital}`)}&body=${encodeURIComponent(
+                            `نتيجة الجولة الحالية: ${totalScoreInfo.percentage}%\nالتاريخ: ${data.date}\nالمنشأة: ${data.hospital}`,
+                          )}`}
+                          className="mt-2 inline-flex rounded-md border border-zinc-300 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700"
+                        >
+                          فتح البريد
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="space-y-10">
                   {activeSections.map((section) => {
@@ -909,77 +1336,115 @@ export default function App() {
               key="presentation"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="fixed inset-0 z-[100] flex flex-col bg-zinc-950 text-white"
+              className="fixed inset-0 z-[100] flex flex-col bg-gradient-to-b from-zinc-950 via-zinc-900 to-zinc-950 text-white"
               dir="rtl"
             >
+              <div className="h-1 w-full shrink-0 bg-white/10">
+                <motion.div
+                  className="h-full bg-gradient-to-l from-indigo-400 to-violet-500"
+                  initial={false}
+                  animate={{ width: `${((presIndex + 1) / Math.max(1, presTotal)) * 100}%` }}
+                  transition={{ type: "spring", stiffness: 380, damping: 38 }}
+                />
+              </div>
+
               <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
                 <button type="button" onClick={() => setStep("report")} className="rounded-lg px-2 py-1.5 text-xs text-white/80">
                   إغلاق
                 </button>
-                <span className="text-[11px] tabular-nums text-white/50">
-                  {presIndex + 1} / {presTotal}
-                </span>
+                <div className="text-center">
+                  <span className="text-[11px] tabular-nums text-white/60">
+                    {presIndex + 1} / {presTotal}
+                  </span>
+                  <p className="text-[10px] text-white/30">مسافة أو ↓ للتالي · ↑ للسابق</p>
+                </div>
               </div>
 
-              <div className="flex flex-1 flex-col justify-center px-4 pb-20 pt-6">
-                {presIndex === 0 && (
-                  <div className="mx-auto max-w-lg text-center">
-                    <img
-                      src={MHC_LOGO_PATH}
-                      alt=""
-                      className="mx-auto mb-6 h-14 w-auto max-w-[min(100%,280px)] object-contain brightness-0 invert"
-                      width={404}
-                      height={124}
-                    />
-                    <h1 className="text-2xl font-bold leading-snug sm:text-3xl">{data.hospital}</h1>
-                    <p className="mt-2 text-sm text-white/50">{data.date}</p>
-                    <p className="mt-8 text-5xl font-bold tabular-nums sm:text-6xl">{totalScoreInfo.percentage}%</p>
-                    <p className="mt-1 text-xs text-white/40">الامتثال الكلي</p>
-                  </div>
-                )}
-
-                {presIndex > 0 && presIndex <= questionSlides.length && (
-                  (() => {
-                    const item = questionSlides[presIndex - 1];
-                    if (!item) return null;
-                    const ans = data.scores[item.question.id];
-                    return (
-                      <div className="mx-auto w-full max-w-lg">
-                        <p className="mb-2 text-[11px] text-indigo-300">{item.sectionTitle}</p>
-                        <p className="mb-6 text-xs text-white/35">
-                          سؤال {item.globalIndex} من {item.totalQuestions}
-                        </p>
-                        <p className="text-lg font-medium leading-relaxed sm:text-xl">{item.question.text}</p>
-                        <div className="mt-8">
-                          <span
-                            className={`inline-block rounded-full px-4 py-2 text-sm font-semibold ${
-                              ans === "yes" ? "bg-emerald-500/20 text-emerald-300" : ans === "no" ? "bg-red-500/20 text-red-300" : "bg-white/10 text-white/70"
-                            }`}
-                          >
-                            {scoreLabel(item.question.id)}
-                          </span>
-                        </div>
-                        {data.itemNotes[item.question.id]?.trim() && (
-                          <p className="mt-6 border-t border-white/10 pt-4 text-sm leading-relaxed text-white/60">{data.itemNotes[item.question.id]}</p>
-                        )}
+              <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-24 pt-4">
+                <AnimatePresence mode="wait" custom={presDirRef.current}>
+                  <motion.div
+                    key={presIndex}
+                    custom={presDirRef.current}
+                    variants={PRES_VARIANTS}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    transition={{ type: "spring", damping: 30, stiffness: 320 }}
+                    className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center"
+                  >
+                    {presIndex === 0 && (
+                      <div className="text-center">
+                        <img
+                          src={MHC_LOGO_PATH}
+                          alt=""
+                          className="mx-auto mb-6 h-14 w-auto max-w-[min(100%,280px)] object-contain brightness-0 invert"
+                          width={404}
+                          height={124}
+                        />
+                        <h1 className="text-2xl font-bold leading-snug sm:text-3xl">{data.hospital}</h1>
+                        <p className="mt-2 text-sm text-white/50">{data.date}</p>
+                        <p className="mt-8 text-5xl font-bold tabular-nums sm:text-6xl">{totalScoreInfo.percentage}%</p>
+                        <p className="mt-1 text-xs text-white/40">الامتثال الكلي</p>
                       </div>
-                    );
-                  })()
-                )}
+                    )}
 
-                {presIndex === presTotal - 1 && (
-                  <div className="mx-auto max-w-md text-center">
-                    <p className="text-2xl font-bold">شكراً لكم</p>
-                    <p className="mt-2 text-sm text-white/45">الإدارة التنفيذية للطب الوقائي</p>
-                  </div>
-                )}
+                    {presIndex > 0 && presIndex <= questionSlides.length &&
+                      (() => {
+                        const item = questionSlides[presIndex - 1];
+                        if (!item) return null;
+                        const ans = data.scores[item.question.id];
+                        return (
+                          <div className="w-full">
+                            <div className="mb-4 flex items-center justify-between gap-2">
+                              <span className="rounded-full bg-white/10 px-3 py-1 text-[10px] font-semibold text-indigo-200">
+                                {item.sectionTitle}
+                              </span>
+                              <span className="text-[10px] tabular-nums text-white/35">
+                                {item.globalIndex} / {item.totalQuestions}
+                              </span>
+                            </div>
+                            <p className="text-balance text-xl font-semibold leading-relaxed sm:text-2xl">{item.question.text}</p>
+                            <div className="mt-8 flex flex-wrap items-center gap-3">
+                              <span
+                                className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-bold shadow-lg ${
+                                  ans === "yes"
+                                    ? "bg-emerald-500/25 text-emerald-200 ring-1 ring-emerald-400/40"
+                                    : ans === "no"
+                                      ? "bg-red-500/25 text-red-200 ring-1 ring-red-400/40"
+                                      : "bg-white/10 text-white/75 ring-1 ring-white/15"
+                                }`}
+                              >
+                                {scoreLabel(item.question.id)}
+                              </span>
+                            </div>
+                            {data.itemNotes[item.question.id]?.trim() ? (
+                              <p className="mt-8 border-t border-white/10 pt-5 text-sm leading-relaxed text-white/55">
+                                {data.itemNotes[item.question.id]}
+                              </p>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
+
+                    {presIndex === presTotal - 1 && presTotal > 1 && (
+                      <div className="text-center">
+                        <p className="text-3xl font-bold sm:text-4xl">شكراً لكم</p>
+                        <p className="mt-3 text-sm text-white/45">الإدارة التنفيذية للطب الوقائي</p>
+                        <p className="mt-8 text-4xl font-bold tabular-nums text-white/25">{totalScoreInfo.percentage}%</p>
+                      </div>
+                    )}
+                  </motion.div>
+                </AnimatePresence>
               </div>
 
-              <div className="fixed bottom-0 left-0 right-0 z-40 flex gap-2 border-t border-white/10 bg-zinc-950 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              <div className="fixed bottom-0 left-0 right-0 z-40 flex gap-2 border-t border-white/10 bg-zinc-950/95 px-3 py-3 backdrop-blur-md pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                 <button
                   type="button"
                   disabled={presIndex <= 0}
-                  onClick={() => setPresIndex((i) => Math.max(0, i - 1))}
+                  onClick={() => {
+                    presDirRef.current = -1;
+                    setPresIndex((i) => Math.max(0, i - 1));
+                  }}
                   className="flex min-h-12 flex-1 items-center justify-center rounded-xl border border-white/20 bg-transparent py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-35"
                 >
                   السابق
@@ -987,7 +1452,10 @@ export default function App() {
                 <button
                   type="button"
                   disabled={presIndex >= presTotal - 1}
-                  onClick={() => setPresIndex((i) => Math.min(presTotal - 1, i + 1))}
+                  onClick={() => {
+                    presDirRef.current = 1;
+                    setPresIndex((i) => Math.min(presTotal - 1, i + 1));
+                  }}
                   className="flex min-h-12 flex-1 items-center justify-center rounded-xl bg-white py-3 text-sm font-semibold text-zinc-950 disabled:cursor-not-allowed disabled:bg-white/40 disabled:text-zinc-600"
                 >
                   التالي
@@ -999,8 +1467,8 @@ export default function App() {
 
       </main>
 
-      {step === "setup" && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200 bg-white pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      {!showIntro && step === "setup" && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200 bg-white pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] print:hidden">
           <div className="mx-auto flex max-w-lg gap-2 px-3 sm:max-w-2xl sm:px-4">
             {setupWizardStep > 0 ? (
               <button
@@ -1041,8 +1509,8 @@ export default function App() {
         </div>
       )}
 
-      {step === "inspection" && flowStep && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200 bg-white pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      {!showIntro && step === "inspection" && flowStep && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200 bg-white pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] print:hidden">
           <div className="mx-auto flex max-w-lg gap-2 px-3 sm:max-w-2xl sm:px-4">
             <button
               type="button"

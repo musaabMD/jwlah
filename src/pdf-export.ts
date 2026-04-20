@@ -5,6 +5,23 @@ import { inlineImagesForPdfCapture } from "./export-helpers";
 /** html2canvas output is capped per edge; oversize canvases fail or break toDataURL. */
 const CANVAS_MAX_EDGE = 8000;
 
+/** Browsers may still serialize `oklch` / `lab` / `color-mix` in computed values; html2canvas cannot parse them. */
+function sanitizeCssValue(value: string): string {
+  if (!value) return value;
+  let v = value;
+  for (let n = 0; n < 6; n++) {
+    const prev = v;
+    v = v
+      .replace(/\boklch\((?:[^()]|\([^)]*\))*\)/gi, "rgb(128, 128, 128)")
+      .replace(/\blab\((?:[^()]|\([^)]*\))*\)/gi, "rgb(128, 128, 128)")
+      .replace(/\blch\((?:[^()]|\([^)]*\))*\)/gi, "rgb(128, 128, 128)")
+      .replace(/\bcolor-mix\([^;]*?\)/gi, "rgb(128, 128, 128)")
+      .replace(/\bhwb\([^)]*\)/gi, "rgb(128, 128, 128)");
+    if (v === prev) break;
+  }
+  return v;
+}
+
 /**
  * html2canvas parses cloned stylesheets and throws on Tailwind v4's `oklch(...)`.
  * The browser already resolves cascade to concrete values in `getComputedStyle`.
@@ -25,7 +42,8 @@ function applyFullComputedStyles(originalRoot: HTMLElement, cloneRoot: HTMLEleme
       for (let i = 0; i < cs.length; i++) {
         const prop = cs.item(i);
         try {
-          style.setProperty(prop, cs.getPropertyValue(prop), cs.getPropertyPriority(prop));
+          const raw = cs.getPropertyValue(prop);
+          style.setProperty(prop, sanitizeCssValue(raw), cs.getPropertyPriority(prop));
         } catch {
           /* skip properties the clone cannot take */
         }
@@ -41,7 +59,11 @@ function stripAuthorStylesheets(doc: Document): void {
   doc.querySelectorAll("style").forEach((n) => n.remove());
 }
 
-function html2canvasOptions(scale: number, original: HTMLElement): Parameters<typeof html2canvas>[1] {
+function html2canvasOptions(
+  scale: number,
+  original: HTMLElement,
+  overrides?: Partial<Parameters<typeof html2canvas>[1]>,
+): Parameters<typeof html2canvas>[1] {
   return {
     scale,
     useCORS: true,
@@ -55,6 +77,7 @@ function html2canvasOptions(scale: number, original: HTMLElement): Parameters<ty
       applyFullComputedStyles(original, cloneRoot);
       stripAuthorStylesheets(doc);
     },
+    ...overrides,
   };
 }
 
@@ -66,16 +89,23 @@ function pickScale(el: HTMLElement, preferred: number): number {
 
 async function captureChunk(el: HTMLElement, preferredScale: number): Promise<HTMLCanvasElement> {
   const scale = pickScale(el, preferredScale);
-  const canvas = await html2canvas(el, html2canvasOptions(scale, el));
-  try {
-    canvas.toDataURL("image/jpeg", 0.88);
-  } catch {
-    if (scale > 1) {
-      return html2canvas(el, html2canvasOptions(1, el));
+  const attempts: Array<() => Parameters<typeof html2canvas>[1]> = [
+    () => html2canvasOptions(scale, el),
+    () => html2canvasOptions(scale, el, { foreignObjectRendering: true }),
+    () => html2canvasOptions(1, el, { foreignObjectRendering: true }),
+  ];
+
+  let lastErr: unknown;
+  for (const buildOpts of attempts) {
+    try {
+      const canvas = await html2canvas(el, buildOpts());
+      canvas.toDataURL("image/jpeg", 0.88);
+      return canvas;
+    } catch (e) {
+      lastErr = e;
     }
-    throw new Error("canvas_export");
   }
-  return canvas;
+  throw lastErr instanceof Error ? lastErr : new Error("canvas_export");
 }
 
 function appendCanvasAcrossPages(
@@ -130,15 +160,15 @@ export async function downloadInspectionReportPdf(reportRoot: HTMLElement, fileB
     const chunk = chunks[i];
     if (chunk.offsetHeight < 2 && chunk.scrollHeight < 2) continue;
 
-    let canvas: HTMLCanvasElement;
-    try {
-      canvas = await captureChunk(chunk, 1.85);
-    } catch {
-      canvas = await captureChunk(chunk, 1);
-    }
+    const canvas = await captureChunk(chunk, 1.85);
 
     appendCanvasAcrossPages(pdf, canvas, imgWidth, margin, pageHeight, i > 0);
   }
 
   pdf.save(`${fileBase}.pdf`);
+}
+
+/** Fallback: user chooses «Save as PDF» in the system print dialog (bypasses html2canvas). */
+export function printInspectionReport(): void {
+  window.print();
 }

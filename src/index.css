@@ -24,3 +24,35 @@ body {
   @apply bg-slate-200 rounded-full hover:bg-slate-300;
 }
 
+@media print {
+  @page {
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: white !important;
+  }
+
+  /* إظهار التقرير فقط عند «طباعة / حفظ PDF» من المتصفح */
+  body * {
+    visibility: hidden;
+  }
+
+  #official-report,
+  #official-report * {
+    visibility: visible;
+  }
+
+  #official-report {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+  }
+}
+

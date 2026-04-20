@@ -23,6 +23,8 @@ export interface InspectionData {
   hospital: string;
   date: string;
   day: string;
+  email?: string;
+  baselinePercentage?: number | null;
   scores: Record<string, ScoreValue>;
   itemNotes: Record<string, string>;
   sectionNotes: Record<string, string>;

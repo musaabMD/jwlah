@@ -60,6 +60,21 @@ export function isSectionComplete(sectionId: string, data: InspectionData): bool
   });
 }
 
+export function getSectionCompletion(sectionId: string, data: InspectionData) {
+  const section = SECTIONS.find((s) => s.id === sectionId);
+  if (!section) return { answered: 0, total: 0, complete: true };
+  const skip = new Set(data.skippedQuestionIds ?? []);
+  let total = 0;
+  let answered = 0;
+  for (const q of section.questions) {
+    if (skip.has(q.id)) continue;
+    total += 1;
+    const score = data.scores[q.id];
+    if (score !== undefined && score !== null) answered += 1;
+  }
+  return { answered, total, complete: total === 0 ? true : answered === total };
+}
+
 export type QuestionSlide = {
   sectionId: string;
   sectionTitle: string;
@@ -91,6 +106,29 @@ export function flattenQuestionSlides(data: InspectionData): QuestionSlide[] {
 export function safeExportBase(data: InspectionData): string {
   const h = (data.hospital || "facility").replace(/[^\w\u0600-\u06FF-]+/g, "_").slice(0, 64);
   return `${h}_${data.date || "nodate"}`;
+}
+
+/** Fresh tour: same defaults as the initial app state (today at noon, empty scores). */
+export function createEmptyInspectionData(): InspectionData {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const iso = `${y}-${m}-${day}`;
+  return {
+    inspectors: [],
+    hospital: "",
+    date: iso,
+    day: new Intl.DateTimeFormat("ar-SA", { weekday: "long" }).format(new Date(`${iso}T12:00:00`)),
+    email: "",
+    baselinePercentage: null,
+    scores: {},
+    itemNotes: {},
+    sectionNotes: {},
+    sectionImages: {},
+    skippedQuestionIds: [],
+  };
 }
 
 export type InspectionFlowStep =

@@ -23,6 +23,24 @@ function truncateChartLabel(text: string, maxChars: number): string {
   return `${t.slice(0, maxChars - 1)}…`;
 }
 
+const ACCENT = "0f172a";
+const ACCENT_LIGHT = "334155";
+
+type PptxSlide = ReturnType<InstanceType<typeof pptxgen>["addSlide"]>;
+
+function addSlideFooter(slide: PptxSlide, data: InspectionData, extra?: string): void {
+  const line = [extra, `${data.date}`, data.hospital || "—"].filter(Boolean).join("   •   ");
+  slide.addText(line, {
+    x: 0.35,
+    y: 5.38,
+    w: 9.3,
+    h: 0.22,
+    fontSize: 9,
+    color: "A1A1AA",
+    align: "right",
+  });
+}
+
 export async function downloadInspectionPptx(data: InspectionData): Promise<void> {
   const pptx = new pptxgen();
   pptx.layout = "LAYOUT_16x9";
@@ -35,27 +53,35 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
 
   const title = pptx.addSlide();
   title.background = { color: "FAFAFA" };
+  title.addShape(pptx.ShapeType.rect, {
+    x: 0,
+    y: 0,
+    w: 10,
+    h: 0.2,
+    fill: { color: ACCENT },
+    line: { color: ACCENT, width: 0 },
+  });
   if (logoB64) {
     title.addImage({
       data: logoB64,
       x: 6.85,
-      y: 0.32,
+      y: 0.42,
       w: 2.75,
       h: 0.85,
     });
   }
   title.addText("جولة إشرافية — موسم الحج 1447هـ", {
     x: 0.4,
-    y: logoB64 ? 1.15 : 0.35,
+    y: logoB64 ? 1.25 : 0.45,
     w: 9.2,
     h: 0.5,
     fontSize: 16,
-    color: "525252",
+    color: ACCENT_LIGHT,
     align: "right",
   });
   title.addText(data.hospital || "—", {
     x: 0.4,
-    y: logoB64 ? 1.65 : 1,
+    y: logoB64 ? 1.75 : 1.05,
     w: 9.2,
     h: 1.05,
     fontSize: 34,
@@ -65,7 +91,7 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
   });
   title.addText(`التاريخ: ${data.date}   •   الامتثال: ${metrics.percentage}%`, {
     x: 0.4,
-    y: logoB64 ? 2.85 : 2.35,
+    y: logoB64 ? 2.95 : 2.45,
     w: 9.2,
     h: 0.5,
     fontSize: 18,
@@ -75,7 +101,7 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
   if (data.inspectors.length) {
     title.addText(`فريق الجولة: ${data.inspectors.join("، ")}`, {
       x: 0.4,
-      y: logoB64 ? 3.35 : 2.95,
+      y: logoB64 ? 3.45 : 3.05,
       w: 9.2,
       h: 0.6,
       fontSize: 15,
@@ -83,9 +109,18 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
       align: "right",
     });
   }
+  addSlideFooter(title, data, `الامتثال ${metrics.percentage}%`);
 
   const summary = pptx.addSlide();
   summary.background = { color: "FFFFFF" };
+  summary.addShape(pptx.ShapeType.rect, {
+    x: 8.85,
+    y: 0.28,
+    w: 0.12,
+    h: 4.9,
+    fill: { color: ACCENT },
+    line: { color: ACCENT, width: 0 },
+  });
   summary.addText("ملخص الامتثال", {
     x: 0.4,
     y: 0.32,
@@ -177,8 +212,9 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
       align: "right",
     });
   }
+  addSlideFooter(summary, data);
 
-  const headerBase = { bold: true, fontSize: 13, color: "FFFFFF" as const, fill: { color: "404040" } };
+  const headerBase = { bold: true, fontSize: 13, color: "FFFFFF" as const, fill: { color: ACCENT } };
   const cellBorder = { pt: 0.5 as const, color: "E5E5E5" };
 
   const sectionScoreRow = (title: string, earned: number, total: number, percentage: number) => [
@@ -202,8 +238,59 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
 
   for (const section of sections) {
     const { earned, total, percentage } = calculateSectionMetrics(section.id, data);
+
+    const sectionIntro = pptx.addSlide();
+    sectionIntro.background = { color: ACCENT };
+    sectionIntro.addText("قسم التقييم", {
+      x: 0.5,
+      y: 1.35,
+      w: 9,
+      h: 0.45,
+      fontSize: 14,
+      color: "94A3B8",
+      align: "right",
+    });
+    sectionIntro.addText(section.title, {
+      x: 0.5,
+      y: 1.85,
+      w: 9,
+      h: 1.35,
+      fontSize: 30,
+      bold: true,
+      color: "FFFFFF",
+      align: "right",
+    });
+    sectionIntro.addText(`نتيجة القسم: ${earned} / ${total}   •   ${percentage}%`, {
+      x: 0.5,
+      y: 3.35,
+      w: 9,
+      h: 0.55,
+      fontSize: 20,
+      color: "E2E8F0",
+      align: "right",
+    });
+    addSlideFooter(sectionIntro, data);
+
     const slide = pptx.addSlide();
     slide.background = { color: "FFFFFF" };
+    slide.addShape(pptx.ShapeType.rect, {
+      x: 0,
+      y: 0,
+      w: 10,
+      h: 0.12,
+      fill: { color: ACCENT },
+      line: { color: ACCENT, width: 0 },
+    });
+    slide.addText(`جدول البنود — ${truncateChartLabel(section.title, 48)}`, {
+      x: 0.4,
+      y: 0.22,
+      w: 9.2,
+      h: 0.4,
+      fontSize: 14,
+      bold: true,
+      color: ACCENT,
+      align: "right",
+    });
 
     const tableRows = [
       [
@@ -248,7 +335,7 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
 
     slide.addTable(tableRows, {
       x: 0.4,
-      y: 0.35,
+      y: 0.72,
       w: 9.2,
       colW: [6.1, 1.15, 1.95],
       border: { pt: 0.5, color: "E5E5E5" },
@@ -256,8 +343,9 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
       autoPage: true,
       autoPageRepeatHeader: true,
       autoPageHeaderRows: 2,
-      autoPageSlideStartY: 0.35,
+      autoPageSlideStartY: 0.72,
     });
+    addSlideFooter(slide, data, `${percentage}%`);
   }
 
   for (const section of sections) {
@@ -266,6 +354,14 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
     if (!note && imgs.length === 0) continue;
     const slide = pptx.addSlide();
     slide.background = { color: "F5F5F5" };
+    slide.addShape(pptx.ShapeType.rect, {
+      x: 0,
+      y: 0,
+      w: 10,
+      h: 0.12,
+      fill: { color: ACCENT },
+      line: { color: ACCENT, width: 0 },
+    });
     slide.addText(section.title, {
       x: 0.4,
       y: 0.4,
@@ -301,6 +397,7 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
         /* skip bad image data */
       }
     });
+    addSlideFooter(slide, data);
   }
 
   const end = pptx.addSlide();
@@ -333,6 +430,7 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
     color: "525252",
     align: "center",
   });
+  addSlideFooter(end, data);
 
   await pptx.writeFile({ fileName: `${safeExportBase(data)}.pptx` });
 }

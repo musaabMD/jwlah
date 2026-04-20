@@ -1,5 +1,5 @@
 import pptxgen from "pptxgenjs";
-import { MHC_LOGO_PATH } from "./branding";
+import { MHC_LOGO_PATH, PPTX_CLOSING_BG_PATH, PPTX_COVER_BG_PATH } from "./branding";
 import { InspectionData } from "./types";
 import {
   calculateGlobalMetrics,
@@ -25,6 +25,16 @@ function truncateChartLabel(text: string, maxChars: number): string {
 
 const ACCENT = "0f172a";
 const ACCENT_LIGHT = "334155";
+/** Masks the baked-in date line on the cover template so we can print live tour metadata. */
+const COVER_MASK_FILL = "274f7d";
+
+function gregorianSlashFromIso(iso: string): string {
+  if (!iso?.trim()) return "—";
+  const day = iso.split("T")[0];
+  const p = day.split("-");
+  if (p.length !== 3) return iso;
+  return `${p[0]}/${p[1]}/${p[2]}`;
+}
 
 type PptxSlide = ReturnType<InstanceType<typeof pptxgen>["addSlide"]>;
 
@@ -50,66 +60,85 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
   const metrics = calculateGlobalMetrics(data);
   const sections = getActiveSections(data);
   const logoB64 = await fetchPublicImageAsPptxBase64(MHC_LOGO_PATH);
+  const coverBgB64 = await fetchPublicImageAsPptxBase64(PPTX_COVER_BG_PATH);
+  const closingBgB64 = await fetchPublicImageAsPptxBase64(PPTX_CLOSING_BG_PATH);
 
   const title = pptx.addSlide();
-  title.background = { color: "FAFAFA" };
-  title.addShape(pptx.ShapeType.rect, {
-    x: 0,
-    y: 0,
-    w: 10,
-    h: 0.2,
-    fill: { color: ACCENT },
-    line: { color: ACCENT, width: 0 },
-  });
-  if (logoB64) {
-    title.addImage({
-      data: logoB64,
-      x: 6.85,
-      y: 0.42,
-      w: 2.75,
-      h: 0.85,
+  if (coverBgB64) {
+    title.background = { data: coverBgB64 };
+    title.addShape(pptx.ShapeType.rect, {
+      x: 0.25,
+      y: 3.02,
+      w: 9.5,
+      h: 0.72,
+      fill: { color: COVER_MASK_FILL },
+      line: { width: 0 },
     });
-  }
-  title.addText("جولة إشرافية — موسم الحج 1447هـ", {
-    x: 0.4,
-    y: logoB64 ? 1.25 : 0.45,
-    w: 9.2,
-    h: 0.5,
-    fontSize: 16,
-    color: ACCENT_LIGHT,
-    align: "right",
-  });
-  title.addText(data.hospital || "—", {
-    x: 0.4,
-    y: logoB64 ? 1.75 : 1.05,
-    w: 9.2,
-    h: 1.05,
-    fontSize: 34,
-    bold: true,
-    color: "171717",
-    align: "right",
-  });
-  title.addText(`التاريخ: ${data.date}   •   الامتثال: ${metrics.percentage}%`, {
-    x: 0.4,
-    y: logoB64 ? 2.95 : 2.45,
-    w: 9.2,
-    h: 0.5,
-    fontSize: 18,
-    color: "404040",
-    align: "right",
-  });
-  if (data.inspectors.length) {
-    title.addText(`فريق الجولة: ${data.inspectors.join("، ")}`, {
-      x: 0.4,
-      y: logoB64 ? 3.45 : 3.05,
-      w: 9.2,
-      h: 0.6,
+    const metaLines = [
+      `تقرير الجولة: ${data.hospital || "—"}`,
+      `التاريخ: ${gregorianSlashFromIso(data.date)}م   •   الامتثال: ${metrics.percentage}٪`,
+    ];
+    if (data.inspectors.length) {
+      metaLines.push(`فريق الجولة: ${data.inspectors.join("، ")}`);
+    }
+    title.addText(metaLines.join("\n"), {
+      x: 0.35,
+      y: 3.05,
+      w: 9.3,
+      h: 0.68,
       fontSize: 15,
-      color: "737373",
-      align: "right",
+      bold: true,
+      color: "FFFFFF",
+      align: "center",
+      valign: "middle",
+      fontFace: "Arial",
     });
+  } else {
+    title.background = { color: "1a3a5c" };
+    if (logoB64) {
+      title.addImage({
+        data: logoB64,
+        x: 6.85,
+        y: 0.35,
+        w: 2.75,
+        h: 0.85,
+      });
+    }
+    title.addText(
+      [
+        "الإدارة التنفيذية للصحة العامة المجتمعية",
+        "إدارة الطب الوقائي",
+        "مكافحة العدوى المجتمعية",
+        "جولة إشرافية للمنشآت الصحية لموسم حج 1447هـ",
+        `تقرير الجولة: ${data.hospital || "—"}`,
+        `التاريخ: ${gregorianSlashFromIso(data.date)}م   •   الامتثال: ${metrics.percentage}٪`,
+      ].join("\n"),
+      {
+        x: 0.5,
+        y: 1.15,
+        w: 9,
+        h: 3.5,
+        fontSize: 20,
+        bold: true,
+        color: "FFFFFF",
+        align: "center",
+        valign: "middle",
+        fontFace: "Arial",
+      },
+    );
+    if (data.inspectors.length) {
+      title.addText(`فريق الجولة: ${data.inspectors.join("، ")}`, {
+        x: 0.5,
+        y: 4.85,
+        w: 9,
+        h: 0.5,
+        fontSize: 14,
+        color: "E2E8F0",
+        align: "center",
+        fontFace: "Arial",
+      });
+    }
   }
-  addSlideFooter(title, data, `الامتثال ${metrics.percentage}%`);
 
   const summary = pptx.addSlide();
   summary.background = { color: "FFFFFF" };
@@ -401,36 +430,34 @@ export async function downloadInspectionPptx(data: InspectionData): Promise<void
   }
 
   const end = pptx.addSlide();
-  end.background = { color: "FAFAFA" };
-  if (logoB64) {
-    end.addImage({
-      data: logoB64,
-      x: 3.625,
-      y: 1.35,
-      w: 2.75,
+  if (closingBgB64) {
+    end.background = { data: closingBgB64 };
+  } else {
+    end.background = { color: "1e3a5f" };
+    end.addText("وشكراً لكم", {
+      x: 0.4,
+      y: 2.35,
+      w: 9.2,
       h: 0.85,
+      fontSize: 36,
+      bold: true,
+      color: "FFFFFF",
+      align: "center",
+      fontFace: "Arial",
+    });
+    end.addText("تجمع المدينة المنورة الصحي — @Med_Cluster", {
+      x: 0.4,
+      y: 3.25,
+      w: 9.2,
+      h: 0.65,
+      fontSize: 16,
+      color: "E2E8F0",
+      align: "center",
+      fontFace: "Arial",
     });
   }
-  end.addText("شكراً لكم", {
-    x: 0.4,
-    y: 2.35,
-    w: 9.2,
-    h: 0.85,
-    fontSize: 36,
-    bold: true,
-    color: "171717",
-    align: "center",
-  });
-  end.addText("تجمع المدينة المنورة الصحي — الإدارة التنفيذية للطب الوقائي", {
-    x: 0.4,
-    y: 3.25,
-    w: 9.2,
-    h: 0.65,
-    fontSize: 16,
-    color: "525252",
-    align: "center",
-  });
-  addSlideFooter(end, data);
 
-  await pptx.writeFile({ fileName: `${safeExportBase(data)}.pptx` });
+  await pptx.writeFile({
+    fileName: `${safeExportBase(data)}.pptx`,
+  });
 }

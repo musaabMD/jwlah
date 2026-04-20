@@ -8,8 +8,6 @@ import {
   ChevronRight,
   Download,
   Plus,
-  ArrowRight,
-  TrendingUp,
   Presentation,
   History,
   Trash2,
@@ -21,6 +19,7 @@ import {
   FileText,
   BarChart3,
   LogIn,
+  EllipsisVertical,
 } from "lucide-react";
 import { INSPECTORS, HOSPITALS, SECTIONS } from "./constants";
 import { InspectionData, ScoreValue } from "./types";
@@ -42,6 +41,94 @@ import { downloadInspectionReportPdf, printInspectionReport } from "./pdf-export
 
 const SETUP_STEP_COUNT = 5;
 const DRAFT_STORAGE_KEY = "tour_draft";
+const DRAFT_STORAGE_VERSION = 2 as const;
+
+type AppStep = "home" | "setup" | "inspection" | "report" | "presentation" | "history";
+
+type DraftPayloadV2 = {
+  v: typeof DRAFT_STORAGE_VERSION;
+  data: InspectionData;
+  step: AppStep;
+  setupWizardStep: number;
+  inspectionStepIndex: number;
+  showIntro: boolean;
+};
+
+function normalizeAppStep(s: unknown): AppStep {
+  const allowed: AppStep[] = ["home", "setup", "inspection", "report", "presentation", "history"];
+  return typeof s === "string" && (allowed as string[]).includes(s) ? (s as AppStep) : "home";
+}
+
+function clampWizardStep(n: unknown): number {
+  const x = Math.round(Number(n));
+  if (Number.isNaN(x)) return 0;
+  return Math.min(SETUP_STEP_COUNT - 1, Math.max(0, x));
+}
+
+function mergeDraftIntoBase(base: InspectionData, d: Partial<InspectionData>): InspectionData {
+  return {
+    ...base,
+    ...d,
+    skippedQuestionIds: Array.isArray(d.skippedQuestionIds) ? d.skippedQuestionIds : base.skippedQuestionIds ?? [],
+  };
+}
+
+function loadSessionFromStorage(): {
+  data: InspectionData;
+  step: AppStep;
+  setupWizardStep: number;
+  inspectionStepIndex: number;
+  showIntro: boolean;
+} {
+  const base = createEmptyInspectionData();
+  try {
+    const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+    if (!raw) {
+      return { data: base, step: "home", setupWizardStep: 0, inspectionStepIndex: 0, showIntro: true };
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return { data: base, step: "home", setupWizardStep: 0, inspectionStepIndex: 0, showIntro: true };
+    }
+    const o = parsed as Record<string, unknown>;
+    if (o.v === DRAFT_STORAGE_VERSION && o.data && typeof o.data === "object") {
+      const d = o.data as Partial<InspectionData>;
+      const step = normalizeAppStep(o.step);
+      const showIntro = step === "home" ? o.showIntro === true : false;
+      return {
+        data: mergeDraftIntoBase(base, d),
+        step,
+        setupWizardStep: clampWizardStep(o.setupWizardStep),
+        inspectionStepIndex: Math.max(0, Math.round(Number(o.inspectionStepIndex)) || 0),
+        showIntro,
+      };
+    }
+    const d = parsed as Partial<InspectionData>;
+    const hasScores = d.scores != null && typeof d.scores === "object" && Object.keys(d.scores).length > 0;
+    const hasWork =
+      Boolean(d.hospital?.trim()) ||
+      (Array.isArray(d.inspectors) && d.inspectors.length > 0) ||
+      hasScores;
+    const step: AppStep = hasScores ? "inspection" : hasWork ? "setup" : "home";
+    return {
+      data: mergeDraftIntoBase(base, d),
+      step,
+      setupWizardStep: 0,
+      inspectionStepIndex: 0,
+      showIntro: step === "home" && !hasWork,
+    };
+  } catch {
+    return { data: base, step: "home", setupWizardStep: 0, inspectionStepIndex: 0, showIntro: true };
+  }
+}
+
+function persistSessionToStorage(payload: DraftPayloadV2) {
+  try {
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
+  } catch (e) {
+    console.warn("tour_draft_save_failed", e);
+  }
+}
 
 const SETUP_WIZARD_STEPS = [
   { label: "الفريق" },
@@ -95,26 +182,29 @@ function buildSetupDateStrip(): { iso: string; weekday: string; dayMonth: string
 }
 
 export default function App() {
-  const [showIntro, setShowIntro] = useState(true);
-  const [step, setStep] = useState<"home" | "setup" | "inspection" | "report" | "presentation" | "history">("home");
-  const [inspectionStepIndex, setInspectionStepIndex] = useState(0);
+  const [persistedBoot] = useState(loadSessionFromStorage);
+  const [showIntro, setShowIntro] = useState(persistedBoot.showIntro);
+  const [step, setStep] = useState<AppStep>(persistedBoot.step);
+  const [inspectionStepIndex, setInspectionStepIndex] = useState(persistedBoot.inspectionStepIndex);
   const [presIndex, setPresIndex] = useState(0);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [homeMsg, setHomeMsg] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState<"pdf" | "pptx" | null>(null);
   /** معالج الإعداد: 0 فريق، 1 منشأة، 2 تاريخ، 3 بنود ثم بدء الجولة */
-  const [setupWizardStep, setSetupWizardStep] = useState(0);
+  const [setupWizardStep, setSetupWizardStep] = useState(persistedBoot.setupWizardStep);
 
   const [history, setHistory] = useState<unknown[]>(() => {
     const saved = localStorage.getItem("tour_history");
     return saved ? JSON.parse(saved) : [];
   });
 
-  const [data, setData] = useState<InspectionData>(() => createEmptyInspectionData());
+  const [data, setData] = useState<InspectionData>(persistedBoot.data);
 
   const reportRef = useRef<HTMLDivElement>(null);
   const setupDateStripScrollRef = useRef<HTMLDivElement>(null);
   const presDirRef = useRef(1);
+  const headerNavRef = useRef<HTMLDivElement>(null);
+  const [headerNavOpen, setHeaderNavOpen] = useState(false);
 
   const activeSections = useMemo(() => getActiveSections(data), [data.skippedQuestionIds]);
   const totalScoreInfo = useMemo(() => calculateGlobalMetrics(data), [data.scores, data.skippedQuestionIds]);
@@ -123,22 +213,6 @@ export default function App() {
   const presTotal = questionSlides.length + 2;
   const inspectionFlow = useMemo(() => buildInspectionFlow(data), [data.skippedQuestionIds]);
   const setupDateStrip = useMemo(() => buildSetupDateStrip(), []);
-
-  useEffect(() => {
-    const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
-    if (!raw) return;
-    try {
-      const draft = JSON.parse(raw) as InspectionData;
-      if (!draft || typeof draft !== "object") return;
-      setData((prev) => ({
-        ...prev,
-        ...draft,
-        skippedQuestionIds: draft.skippedQuestionIds ?? prev.skippedQuestionIds ?? [],
-      }));
-    } catch (err) {
-      console.error("failed_to_restore_draft", err);
-    }
-  }, []);
 
   useEffect(() => {
     if (step !== "report") return;
@@ -166,8 +240,15 @@ export default function App() {
   }, [inspectionFlow.length]);
 
   useEffect(() => {
-    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(data));
-  }, [data]);
+    persistSessionToStorage({
+      v: DRAFT_STORAGE_VERSION,
+      data,
+      step,
+      setupWizardStep,
+      inspectionStepIndex,
+      showIntro,
+    });
+  }, [data, step, setupWizardStep, inspectionStepIndex, showIntro]);
 
   useEffect(() => {
     if (step !== "setup" || setupWizardStep !== 3) return;
@@ -194,6 +275,26 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [step, presTotal]);
+
+  useEffect(() => {
+    setHeaderNavOpen(false);
+  }, [step]);
+
+  useEffect(() => {
+    if (!headerNavOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (headerNavRef.current && !headerNavRef.current.contains(e.target as Node)) setHeaderNavOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setHeaderNavOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [headerNavOpen]);
 
   const startNewTour = () => {
     setData(createEmptyInspectionData());
@@ -329,6 +430,29 @@ export default function App() {
     const avg = count > 0 ? Math.round(tours.reduce((sum, t) => sum + (t.totalScore ?? 0), 0) / count) : 0;
     return { count, avg };
   }, [history]);
+
+  const headerTitle =
+    step === "home"
+      ? "نماذج الجولات"
+      : step === "setup"
+        ? "إعداد الجولة"
+        : step === "inspection"
+          ? "التقييم الميداني"
+          : step === "report"
+            ? "ملخص النتائج"
+            : step === "history"
+              ? "سجل الجولات"
+              : "نماذج الجولات";
+
+  const headerSubtitle: string | null =
+    step === "setup"
+      ? SETUP_WIZARD_STEPS[setupWizardStep]?.label ?? null
+      : step === "inspection" && inspectionFlow.length > 0
+        ? `${inspectionProgressPct}٪ · ${inspectionStepIndex + 1} من ${inspectionFlow.length}`
+        : step === "report" && data.hospital
+          ? data.hospital
+          : null;
+
   const canGoBackFromHeader = !showIntro && step !== "home";
   const goBackFromHeader = () => {
     if (step === "setup") {
@@ -366,67 +490,171 @@ export default function App() {
 
   return (
     <div className="min-h-[100dvh] bg-zinc-50 text-zinc-900 overflow-x-hidden print:bg-white" dir="rtl">
-      {!showIntro && (
-        <header className="sticky top-0 z-50 border-b border-zinc-200/80 bg-white/90 backdrop-blur-md print:hidden">
-        <div className="mx-auto flex max-w-lg items-center justify-between gap-2 px-3 py-2.5 sm:max-w-2xl sm:px-4">
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-white">
-              <ClipboardCheck className="h-4 w-4" />
+      {!showIntro && step !== "presentation" && (
+        <header className="sticky top-0 z-50 border-b border-zinc-200/70 bg-white/95 shadow-[0_1px_0_rgba(0,0,0,0.03)] backdrop-blur-md print:hidden">
+          <div className="mx-auto max-w-lg px-3 pt-2.5 sm:max-w-2xl sm:px-4 sm:pt-3">
+            <div className="flex items-start justify-between gap-2 sm:items-center">
+              <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-white shadow-sm sm:h-9 sm:w-9">
+                  <ClipboardCheck className="h-4 w-4 sm:h-[1.05rem] sm:w-[1.05rem]" aria-hidden />
+                </div>
+                <div className="min-w-0 py-0.5">
+                  <h1 className="truncate text-[13px] font-bold leading-tight text-zinc-900 sm:text-sm">{headerTitle}</h1>
+                  {headerSubtitle ? (
+                    <p className="mt-0.5 truncate text-[11px] font-medium text-zinc-500">{headerSubtitle}</p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center sm:gap-1.5">
+                {(step === "inspection" || step === "report") && (
+                  <div
+                    className="flex rounded-xl bg-zinc-100/90 p-0.5 ring-1 ring-zinc-200/80"
+                    role="tablist"
+                    aria-label="التبديل بين التقييم والنتائج"
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={step === "inspection"}
+                      onClick={() => {
+                        setHomeMsg(null);
+                        setStep("inspection");
+                        window.scrollTo(0, 0);
+                      }}
+                      className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-colors sm:px-3 ${
+                        step === "inspection" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"
+                      }`}
+                    >
+                      التقييم
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={step === "report"}
+                      onClick={() => {
+                        setHomeMsg(null);
+                        setStep("report");
+                        window.scrollTo(0, 0);
+                      }}
+                      className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-colors sm:px-3 ${
+                        step === "report" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"
+                      }`}
+                    >
+                      النتائج
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-1">
+                  {step === "home" && (
+                    <button
+                      type="button"
+                      onClick={() => setStep("history")}
+                      className="flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-800 transition-colors hover:bg-zinc-100 active:bg-zinc-100/90"
+                    >
+                      <History className="h-3.5 w-3.5" aria-hidden />
+                      السجل
+                    </button>
+                  )}
+                  {canGoBackFromHeader && (
+                    <button
+                      type="button"
+                      onClick={goBackFromHeader}
+                      className="rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 active:bg-zinc-100"
+                      aria-label="رجوع"
+                    >
+                      <ChevronRight className="h-4 w-4" aria-hidden />
+                    </button>
+                  )}
+                  {step !== "home" && (
+                    <div className="relative" ref={headerNavRef}>
+                      <button
+                        type="button"
+                        onClick={() => setHeaderNavOpen((o) => !o)}
+                        className={`rounded-xl border p-2 shadow-sm transition-colors ${
+                          headerNavOpen
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                        }`}
+                        aria-expanded={headerNavOpen}
+                        aria-haspopup="menu"
+                        aria-label="قائمة التنقل السريع"
+                      >
+                        <EllipsisVertical className="h-4 w-4" aria-hidden />
+                      </button>
+                      {headerNavOpen ? (
+                        <div
+                          role="menu"
+                          className="absolute end-0 top-[calc(100%+6px)] z-50 min-w-[11.5rem] overflow-hidden rounded-xl border border-zinc-200 bg-white py-1 shadow-lg ring-1 ring-zinc-950/5 sm:min-w-[12.5rem]"
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="flex w-full items-center gap-2 px-3 py-2.5 text-right text-[13px] font-medium text-zinc-800 hover:bg-zinc-50"
+                            onClick={() => {
+                              setHeaderNavOpen(false);
+                              setHomeMsg(null);
+                              setStep("home");
+                              window.scrollTo(0, 0);
+                            }}
+                          >
+                            <LayoutGrid className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
+                            الرئيسية
+                          </button>
+                          {step !== "history" && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="flex w-full items-center gap-2 px-3 py-2.5 text-right text-[13px] font-medium text-zinc-800 hover:bg-zinc-50"
+                              onClick={() => {
+                                setHeaderNavOpen(false);
+                                setStep("history");
+                                window.scrollTo(0, 0);
+                              }}
+                            >
+                              <History className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
+                              السجل
+                            </button>
+                          )}
+                          {step === "report" && (
+                            <>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="flex w-full items-center gap-2 px-3 py-2.5 text-right text-[13px] font-medium text-zinc-800 hover:bg-zinc-50"
+                                onClick={() => {
+                                  setHeaderNavOpen(false);
+                                  presDirRef.current = 1;
+                                  setStep("presentation");
+                                }}
+                              >
+                                <Presentation className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
+                                عرض تفاعلي
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="flex w-full items-center gap-2 px-3 py-2.5 text-right text-[13px] font-semibold text-emerald-800 hover:bg-emerald-50/80"
+                                onClick={() => {
+                                  setHeaderNavOpen(false);
+                                  startNewTour();
+                                }}
+                              >
+                                <FilePlus2 className="h-4 w-4 shrink-0 text-emerald-700" aria-hidden />
+                                جولة جديدة
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="min-w-0">
-              <h1 className="truncate text-sm font-semibold leading-tight">
-                {step === "home" ? "نماذج الجولات" : "الطب الوقائي — جولة 1447هـ"}
-              </h1>
-              {step !== "home" && data.inspectors.length > 0 && (
-                <p className="truncate text-[11px] text-zinc-500">{data.inspectors.join(" · ")}</p>
-              )}
-            </div>
+            <div className="h-2 sm:h-2.5" aria-hidden />
           </div>
-          <div className="flex shrink-0 items-center gap-1">
-            {canGoBackFromHeader && (
-              <button
-                type="button"
-                onClick={goBackFromHeader}
-                className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-700 active:bg-zinc-100"
-                aria-label="رجوع"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setHomeMsg(null);
-                if (step === "home") window.scrollTo({ top: 0, behavior: "smooth" });
-                else setStep("home");
-              }}
-              className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-700 active:bg-zinc-100"
-              aria-label="القائمة الرئيسية"
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </button>
-            {step === "report" && (
-              <button
-                type="button"
-                onClick={startNewTour}
-                className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-zinc-800 active:bg-zinc-50"
-              >
-                <FilePlus2 className="h-3.5 w-3.5" />
-                جولة جديدة
-              </button>
-            )}
-            {(step === "inspection" || step === "report") && (
-              <button
-                type="button"
-                onClick={() => setStep(step === "report" ? "inspection" : "report")}
-                className="flex items-center gap-1 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-[11px] font-semibold text-white active:bg-zinc-800"
-              >
-                {step === "report" ? <ArrowRight className="h-3.5 w-3.5 rotate-180" /> : <TrendingUp className="h-3.5 w-3.5" />}
-                {step === "report" ? "التقييم" : "النتائج"}
-              </button>
-            )}
-          </div>
-        </div>
         </header>
       )}
 
@@ -666,16 +894,6 @@ export default function App() {
 
           {step === "setup" && (
             <motion.div key="setup" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  onClick={() => setStep("history")}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 shadow-sm active:bg-zinc-50"
-                >
-                  <History className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  السجل
-                </button>
-              </div>
               <div className="mx-auto w-full min-w-0 max-w-full">
                 <div className="rounded-2xl border border-zinc-200/90 bg-white px-3 py-2 shadow-sm">
                   <div className="mb-2 flex items-center justify-center gap-2">
@@ -815,8 +1033,14 @@ export default function App() {
 
               {setupWizardStep === 2 && (
                 <section className="rounded-xl border border-zinc-200 bg-white p-4">
-                  <h2 className="mb-1 text-sm font-semibold">البريد لإرسال التقرير</h2>
-                  <p className="mb-4 text-[11px] text-zinc-500">اختياري — لمراجعة أو إرسال نسخة من التقرير لاحقًا</p>
+                  <h2 className="mb-1 text-sm font-semibold">البريد الإلكتروني (اختياري)</h2>
+                  <p className="mb-4 text-[11px] leading-relaxed text-zinc-500">
+                    يُحفظ العنوان مع الجولة ويظهر في صفحة التقرير.{" "}
+                    <span className="font-semibold text-zinc-700">
+                      التطبيق لا يرسل بريداً تلقائياً ولا يُرفق ملف PowerPoint.
+                    </span>{" "}
+                    لإرسال التقرير بالبريد: بعد الانتهاء استخدم «PowerPoint» للتنزيل، ثم أرفق الملف يدوياً من مجلد التنزيلات. يمكنك أيضاً فتح مسودة بريد بنص ملخّص من صفحة التقرير (بدون مرفق).
+                  </p>
                   <label className="block max-w-md">
                     <span className="mb-1 block text-[11px] font-semibold text-zinc-600">عنوان البريد (اختياري)</span>
                     <div className="relative">
@@ -1221,17 +1445,20 @@ export default function App() {
                 {data.email ? (
                   <div data-pdf-chunk className="mb-8">
                     <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 sm:max-w-md">
-                      <p className="text-[11px] text-zinc-600">إرسال التقرير إلى</p>
+                      <p className="text-[11px] text-zinc-600">البريد المرتبط بهذه الجولة</p>
                       <p className="mt-1 text-sm font-semibold text-zinc-900" dir="ltr">
                         {data.email}
                       </p>
+                      <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
+                        «فتح البريد» يُنشئ رسالة نصية فقط (لا مرفقات). لإرسال PowerPoint: نزّل الملف أعلاه ثم أرفقه من تطبيق البريد.
+                      </p>
                       <a
                         href={`mailto:${data.email}?subject=${encodeURIComponent(`تقرير جولة تفتيشية - ${data.hospital}`)}&body=${encodeURIComponent(
-                          `نتيجة الجولة الحالية: ${totalScoreInfo.percentage}%\nالتاريخ: ${data.date}\nالمنشأة: ${data.hospital}`,
+                          `نتيجة الجولة الحالية: ${totalScoreInfo.percentage}%\nالتاريخ: ${data.date}\nالمنشأة: ${data.hospital}\n\n(أرفق ملف PowerPoint بعد تنزيله من التطبيق)`,
                         )}`}
                         className="mt-2 inline-flex rounded-md border border-zinc-300 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700"
                       >
-                        فتح البريد
+                        فتح البريد (ملخص نصي)
                       </a>
                     </div>
                   </div>
@@ -1501,9 +1728,10 @@ export default function App() {
                   window.scrollTo(0, 0);
                 } else setStep("setup");
               }}
-              className="flex min-h-12 min-w-12 shrink-0 items-center justify-center rounded-xl border border-zinc-300 bg-white active:bg-zinc-50"
+              className="flex min-h-12 shrink-0 items-center justify-center gap-1 rounded-xl border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-800 active:bg-zinc-50"
             >
-              <ChevronRight className="h-5 w-5" />
+              <ChevronRight className="h-4 w-4 shrink-0" />
+              رجوع
             </button>
             <button
               type="button"

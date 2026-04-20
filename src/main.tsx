@@ -4,7 +4,7 @@ import {Analytics} from '@vercel/analytics/react';
 import App from './App.tsx';
 import './index.css';
 
-const APP_DOC_TITLE = 'جولة التفتيش — الطب الوقائي | تجمع المدينة المنورة الصحي';
+const APP_DOC_TITLE = 'جولة ، جولات الصحة العامة';
 document.title = APP_DOC_TITLE;
 
 createRoot(document.getElementById('root')!).render(

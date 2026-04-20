@@ -1,0 +1,20 @@
+{
+  "name": "جولة التفتيش — الطب الوقائي | تجمع المدينة المنورة الصحي",
+  "short_name": "جولة التفتيش",
+  "description": "نظام تقييم الجولات الإشرافية للمنشآت الصحية خلال موسم الحج، مع التقارير المصورة ونظام النقاط التلقائي.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fafafa",
+  "theme_color": "#18181b",
+  "lang": "ar",
+  "dir": "rtl",
+  "icons": [
+    {
+      "src": "/mhc-logo.jpg",
+      "sizes": "any",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,5 +1,110 @@
 import { SECTIONS } from "./constants";
-import { InspectionData, InspectionQuestion, InspectionSection } from "./types";
+import { InspectionData, InspectionQuestion, InspectionSection, ScoreValue } from "./types";
+
+/** Coerce persisted / hand-edited values into strict ScoreValue for lookups and export. */
+export function normalizeScoreValue(raw: unknown): ScoreValue {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "boolean") return raw ? "yes" : "no";
+  if (typeof raw === "number") {
+    if (raw === 1) return "yes";
+    if (raw === 0) return "no";
+    return null;
+  }
+  if (typeof raw !== "string") return null;
+  const t = raw.trim().toLowerCase();
+  if (t === "" || t === "null" || t === "undefined") return null;
+  if (t === "yes" || t === "y" || t === "true" || t === "1" || t === "نعم") return "yes";
+  if (t === "no" || t === "n" || t === "false" || t === "0" || t === "لا") return "no";
+  if (t === "na" || t === "n/a" || t === "n\\a" || t === "غير applicable" || t === "غير قابل للتطبيق") return "na";
+  return null;
+}
+
+function toTrimmedString(v: unknown): string {
+  if (typeof v === "string") return v.trim();
+  if (v == null) return "";
+  return String(v).trim();
+}
+
+function asStringRecord(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return raw as Record<string, unknown>;
+}
+
+/**
+ * Maps scores and per-item notes onto canonical question `id`s (from SECTIONS).
+ * Use after loading JSON/localStorage/history so PowerPoint and metrics match the form.
+ */
+export function normalizeInspectionData(data: InspectionData): InspectionData {
+  let sourceScores = asStringRecord(data.scores);
+  const sourceNotes = asStringRecord(data.itemNotes);
+
+  if (Array.isArray(data.scores)) {
+    const merged: Record<string, unknown> = { ...sourceScores };
+    for (const row of data.scores as unknown[]) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const o = row as Record<string, unknown>;
+      const id = o.id ?? o.qid ?? o.questionId;
+      if (id != null && String(id).trim()) merged[String(id).trim()] = o.score ?? o.value ?? o.answer ?? o.val;
+    }
+    sourceScores = merged;
+  }
+
+  const scores: Record<string, ScoreValue> = {};
+  const itemNotes: Record<string, string> = {};
+
+  const pickRawScore = (q: InspectionQuestion): unknown => {
+    const keys = [q.id, q.id.trim(), q.text, q.text.trim()].filter(Boolean) as string[];
+    for (const key of keys) {
+      if (key in sourceScores) return sourceScores[key];
+    }
+    const idLower = q.id.toLowerCase();
+    for (const [k, v] of Object.entries(sourceScores)) {
+      if (k.trim().toLowerCase() === idLower) return v;
+    }
+    return undefined;
+  };
+
+  const pickRawNote = (q: InspectionQuestion): string => {
+    const keys = [q.id, q.id.trim(), q.text, q.text.trim()].filter(Boolean) as string[];
+    for (const key of keys) {
+      const v = toTrimmedString(sourceNotes[key]);
+      if (v) return v;
+    }
+    const idLower = q.id.toLowerCase();
+    for (const [k, v] of Object.entries(sourceNotes)) {
+      if (k.trim().toLowerCase() === idLower) return toTrimmedString(v);
+    }
+    return "";
+  };
+
+  for (const section of SECTIONS) {
+    for (const q of section.questions) {
+      const raw = pickRawScore(q);
+      const n = normalizeScoreValue(raw);
+      if (n !== null) scores[q.id] = n;
+      const note = pickRawNote(q);
+      if (note) itemNotes[q.id] = note;
+    }
+  }
+
+  for (const [k, v] of Object.entries(sourceScores)) {
+    if (k in scores) continue;
+    const n = normalizeScoreValue(v);
+    if (n !== null) scores[k] = n;
+  }
+
+  for (const [k, v] of Object.entries(sourceNotes)) {
+    if (k in itemNotes) continue;
+    const t = toTrimmedString(v);
+    if (t) itemNotes[k] = t;
+  }
+
+  return {
+    ...data,
+    scores,
+    itemNotes,
+  };
+}
 
 export function getActiveSections(data: InspectionData): InspectionSection[] {
   const skip = new Set(data.skippedQuestionIds ?? []);

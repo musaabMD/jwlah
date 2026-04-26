@@ -34,6 +34,7 @@ import {
   isFlowStepComplete,
   safeExportBase,
   createEmptyInspectionData,
+  normalizeInspectionData,
 } from "./inspection-utils";
 import { MHC_LOGO_PATH } from "./branding";
 import { downloadInspectionPptx } from "./export-pptx";
@@ -72,11 +73,11 @@ function clampWizardStep(n: unknown): number {
 }
 
 function mergeDraftIntoBase(base: InspectionData, d: Partial<InspectionData>): InspectionData {
-  return {
+  return normalizeInspectionData({
     ...base,
     ...d,
     skippedQuestionIds: Array.isArray(d.skippedQuestionIds) ? d.skippedQuestionIds : base.skippedQuestionIds ?? [],
-  };
+  });
 }
 
 function hasProgressData(d: InspectionData): boolean {
@@ -934,22 +935,24 @@ export default function App() {
                           type="button"
                           onClick={() => {
                             const t = tour as Partial<InspectionData> & { id: string; hospital: string; date: string; inspectors: string[] };
-                            setData({
-                              id: t.id,
-                              inspectors: t.inspectors ?? [],
-                              hospital: t.hospital ?? "",
-                              date: t.date ?? "",
-                              day:
-                                t.day ??
-                                new Intl.DateTimeFormat("ar-SA", { weekday: "long" }).format(new Date((t.date ?? "") + "T12:00:00")),
-                              email: t.email ?? "",
-                              baselinePercentage: typeof t.baselinePercentage === "number" ? t.baselinePercentage : null,
-                              scores: t.scores ?? {},
-                              itemNotes: t.itemNotes ?? {},
-                              sectionNotes: t.sectionNotes ?? {},
-                              sectionImages: t.sectionImages ?? {},
-                              skippedQuestionIds: t.skippedQuestionIds ?? [],
-                            });
+                            setData(
+                              normalizeInspectionData({
+                                id: t.id,
+                                inspectors: t.inspectors ?? [],
+                                hospital: t.hospital ?? "",
+                                date: t.date ?? "",
+                                day:
+                                  t.day ??
+                                  new Intl.DateTimeFormat("ar-SA", { weekday: "long" }).format(new Date((t.date ?? "") + "T12:00:00")),
+                                email: t.email ?? "",
+                                baselinePercentage: typeof t.baselinePercentage === "number" ? t.baselinePercentage : null,
+                                scores: (t.scores ?? {}) as InspectionData["scores"],
+                                itemNotes: t.itemNotes ?? {},
+                                sectionNotes: t.sectionNotes ?? {},
+                                sectionImages: t.sectionImages ?? {},
+                                skippedQuestionIds: t.skippedQuestionIds ?? [],
+                              }),
+                            );
                             setStep("report");
                           }}
                           className="rounded-lg border border-zinc-200 px-2 py-1.5 text-[11px] font-medium"

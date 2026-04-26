@@ -5,6 +5,7 @@ import {
   calculateGlobalMetrics,
   calculateSectionMetrics,
   getActiveSections,
+  normalizeInspectionData,
   safeExportBase,
 } from "./inspection-utils";
 import { dataUrlToPptxBase64, fetchPublicImageAsPptxBase64 } from "./export-helpers";
@@ -51,7 +52,8 @@ function addSlideFooter(slide: PptxSlide, data: InspectionData, extra?: string):
   });
 }
 
-export async function downloadInspectionPptx(data: InspectionData): Promise<void> {
+export async function downloadInspectionPptx(raw: InspectionData): Promise<void> {
+  const data = normalizeInspectionData(raw);
   const pptx = new pptxgen();
   pptx.layout = "LAYOUT_16x9";
   pptx.rtlMode = true;

@@ -2,6 +2,7 @@ import pptxgen from "pptxgenjs";
 import { MHC_LOGO_PATH } from "./branding";
 import { calculateReportMakerScore, type ReportMakerData, safeReportMakerFileBase } from "./report-maker-types";
 import { dataUrlToPptxBase64, fetchPublicImageAsPptxBase64 } from "./export-helpers";
+import { PPTX_PARA_RTL } from "./pptx-rtl-opts";
 
 const ACCENT = "0f172a";
 
@@ -16,7 +17,8 @@ function gregorianSlashFromIso(iso: string): string {
 type PptxSlide = ReturnType<InstanceType<typeof pptxgen>["addSlide"]>;
 
 function addFooter(slide: PptxSlide, data: ReportMakerData): void {
-  const line = [`${data.date}`, data.facility || "—"].filter(Boolean).join("   •   ");
+  const team = data.inspectors?.length ? data.inspectors.join("، ") : "—";
+  const line = [`${data.date}`, data.facility?.trim() || "—", team].join("   •   ");
   slide.addText(line, {
     x: 0.35,
     y: 5.38,
@@ -25,6 +27,7 @@ function addFooter(slide: PptxSlide, data: ReportMakerData): void {
     fontSize: 9,
     color: "A1A1AA",
     align: "right",
+    ...PPTX_PARA_RTL,
   });
 }
 
@@ -39,7 +42,9 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
   const pptx = new pptxgen();
   pptx.layout = "LAYOUT_16x9";
   pptx.rtlMode = true;
-  pptx.author = "صانع التقرير";
+  pptx.author = raw.inspectors?.length ? raw.inspectors.join("، ") : "صانع التقرير";
+  pptx.title = raw.title?.trim() || "تقرير";
+  pptx.subject = "تقرير — قائمة تحقق (RTL)";
 
   const logoB64 = await fetchPublicImageAsPptxBase64(MHC_LOGO_PATH);
 
@@ -64,11 +69,13 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
     color: "FFFFFF",
     align: "center",
     fontFace: "Arial",
+    ...PPTX_PARA_RTL,
   });
   const metaLines = [
-    raw.facility ? `المنشأة: ${raw.facility}` : null,
+    raw.facility?.trim() ? `المنشأة: ${raw.facility.trim()}` : null,
+    raw.inspectors?.length ? `المكلفون: ${raw.inspectors.join("، ")}` : null,
     `التاريخ: ${gregorianSlashFromIso(raw.date)}م`,
-    total > 0 ? `الإنجاز (البنود المملوءة): ${checked} / ${total}  •  ${percentage}٪` : "لا توجد بنود مملوءة للتقييم التلقائي",
+    total > 0 ? `الإنجاز (جميع البنود): ${checked} / ${total}  •  ${percentage}٪` : "لا توجد بنود في القائمة",
   ].filter(Boolean) as string[];
   cover.addText(metaLines.join("\n"), {
     x: 0.5,
@@ -82,10 +89,11 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
     valign: "middle",
     fontFace: "Arial",
     lineSpacing: 24,
+    ...PPTX_PARA_RTL,
   });
   addFooter(cover, raw);
 
-  const applicable = raw.items.filter((it) => it.text.trim().length > 0);
+  const applicable = raw.items;
   const tableSlide = pptx.addSlide();
   tableSlide.background = { color: "FFFFFF" };
   tableSlide.addShape(pptx.ShapeType.rect, {
@@ -105,8 +113,9 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
     bold: true,
     color: ACCENT,
     align: "right",
+    ...PPTX_PARA_RTL,
   });
-  tableSlide.addText(total > 0 ? `${checked} من ${total} مكتمل  •  ${percentage}٪` : "أضف نصاً لكل بند ثم ضع علامة ✓", {
+  tableSlide.addText(total > 0 ? `${checked} من ${total} مكتمل  •  ${percentage}٪` : "لا توجد بنود", {
     x: 0.4,
     y: 0.62,
     w: 9.2,
@@ -114,39 +123,46 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
     fontSize: 13,
     color: "525252",
     align: "right",
+    ...PPTX_PARA_RTL,
   });
 
-  const headerBase = { bold: true, fontSize: 12, color: "FFFFFF" as const, fill: { color: ACCENT } };
+  const headerBase = { bold: true, fontSize: 11, color: "FFFFFF" as const, fill: { color: ACCENT }, ...PPTX_PARA_RTL };
   const cellBorder = { pt: 0.5 as const, color: "E5E5E5" };
 
   const tableRows = [
     [
       { text: "البند", options: { ...headerBase, align: "right" as const } },
-      { text: "✓", options: { ...headerBase, align: "center" as const, w: 0.9 } },
+      { text: "✓", options: { ...headerBase, align: "center" as const, w: 0.75 } },
+      { text: "ملاحظة", options: { ...headerBase, align: "right" as const } },
     ],
     ...(applicable.length > 0
       ? applicable.map((it) => [
           {
-            text: truncateCell(it.text, 500),
-            options: { fontSize: 12, align: "right" as const, valign: "middle" as const, border: cellBorder },
+            text: truncateCell(it.text, 420),
+            options: { fontSize: 10, align: "right" as const, valign: "middle" as const, border: cellBorder, ...PPTX_PARA_RTL },
           },
           {
             text: it.checked ? "✓" : "—",
             options: {
-              fontSize: 14,
+              fontSize: 13,
               bold: true,
               color: it.checked ? ("15803D" as const) : ("737373" as const),
               align: "center" as const,
               valign: "middle" as const,
               border: cellBorder,
+              ...PPTX_PARA_RTL,
             },
+          },
+          {
+            text: truncateCell(it.note.trim() || "—", 220),
+            options: { fontSize: 10, align: "right" as const, valign: "middle" as const, border: cellBorder, ...PPTX_PARA_RTL },
           },
         ])
       : [
           [
             {
-              text: "لم تُضف بنود بها نص بعد.",
-              options: { colspan: 2, fontSize: 14, align: "right" as const, color: "737373", border: cellBorder },
+              text: "لا توجد بنود.",
+              options: { colspan: 3, fontSize: 14, align: "right" as const, color: "737373", border: cellBorder, ...PPTX_PARA_RTL },
             },
           ],
         ]),
@@ -156,7 +172,7 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
     x: 0.4,
     y: 1.05,
     w: 9.2,
-    colW: [8.1, 1.1],
+    colW: [5.85, 0.75, 2.6],
     border: { pt: 0.5, color: "E5E5E5" },
     fontSize: 12,
     autoPage: true,
@@ -186,6 +202,7 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
       bold: true,
       color: "171717",
       align: "right",
+      ...PPTX_PARA_RTL,
     });
     noteSlide.addText(raw.notes.trim(), {
       x: 0.4,
@@ -196,8 +213,66 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
       color: "404040",
       align: "right",
       valign: "top",
+      ...PPTX_PARA_RTL,
     });
     addFooter(noteSlide, raw);
+  }
+
+  for (const it of raw.items) {
+    const imgs = it.images ?? [];
+    imgs.forEach((src, idx) => {
+      try {
+        const slide = pptx.addSlide();
+        slide.background = { color: "F4F4F5" };
+        slide.addShape(pptx.ShapeType.rect, {
+          x: 0,
+          y: 0,
+          w: 10,
+          h: 0.12,
+          fill: { color: ACCENT },
+          line: { color: ACCENT, width: 0 },
+        });
+        const title =
+          imgs.length > 1 ? `صورة ${idx + 1} — ${truncateCell(it.text, 72)}` : truncateCell(it.text, 90);
+        slide.addText(title, {
+          x: 0.4,
+          y: 0.22,
+          w: 9.2,
+          h: 0.45,
+          fontSize: 12,
+          bold: true,
+          color: ACCENT,
+          align: "right",
+          ...PPTX_PARA_RTL,
+        });
+        const noteTrim = it.note.trim();
+        if (noteTrim) {
+          slide.addText(truncateCell(noteTrim, 180), {
+            x: 0.4,
+            y: 0.62,
+            w: 9.2,
+            h: 0.35,
+            fontSize: 11,
+            color: "525252",
+            align: "right",
+            ...PPTX_PARA_RTL,
+          });
+        }
+        const imgY = noteTrim ? 1.05 : 0.78;
+        const imgH = noteTrim ? 4.25 : 4.52;
+        slide.addImage({
+          data: dataUrlToPptxBase64(src),
+          x: 0.5,
+          y: imgY,
+          w: 9,
+          h: imgH,
+          sizing: { type: "contain", w: 9, h: imgH },
+        });
+        addFooter(slide, raw);
+      } catch {
+        /* skip invalid image */
+      }
+    });
   }
 
   raw.images.forEach((src, idx) => {
@@ -221,6 +296,7 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
         bold: true,
         color: ACCENT,
         align: "right",
+        ...PPTX_PARA_RTL,
       });
       slide.addImage({
         data: dataUrlToPptxBase64(src),
@@ -248,6 +324,7 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
     color: "FFFFFF",
     align: "center",
     fontFace: "Arial",
+    ...PPTX_PARA_RTL,
   });
   end.addText("تجمع المدينة المنورة الصحي", {
     x: 0.4,
@@ -257,6 +334,7 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
     fontSize: 14,
     color: "E2E8F0",
     align: "center",
+    ...PPTX_PARA_RTL,
   });
   addFooter(end, raw);
 

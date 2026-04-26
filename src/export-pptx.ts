@@ -9,6 +9,7 @@ import {
   safeExportBase,
 } from "./inspection-utils";
 import { dataUrlToPptxBase64, fetchPublicImageAsPptxBase64 } from "./export-helpers";
+import { PPTX_PARA_RTL } from "./pptx-rtl-opts";
 
 function scoreLabel(data: InspectionData, qid: string): string {
   const s = data.scores[qid];
@@ -54,6 +55,7 @@ function addSlideFooter(slide: PptxSlide, data: InspectionData, extra?: string):
     fontSize: 9,
     color: "A1A1AA",
     align: "right",
+    ...PPTX_PARA_RTL,
   });
 }
 
@@ -63,6 +65,8 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
   pptx.layout = "LAYOUT_16x9";
   pptx.rtlMode = true;
   pptx.author = "الإدارة التنفيذية للطب الوقائي";
+  pptx.title = data.hospital?.trim() || "تقرير جولة تفتيشية";
+  pptx.subject = "جولة — امتثال IPC (RTL)";
 
   const metrics = calculateGlobalMetrics(data);
   const sections = getActiveSections(data);
@@ -102,6 +106,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
       fontFace: "Arial",
       lineSpacing: COVER_META_LINE_SPACING,
       margin: [6, 10, 6, 10],
+      ...PPTX_PARA_RTL,
     });
   } else {
     title.background = { color: "1a3a5c" };
@@ -132,6 +137,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
       valign: "middle",
       fontFace: "Arial",
       lineSpacing: 28,
+      ...PPTX_PARA_RTL,
     });
     const metaNoCover = [
       `تقرير الجولة: ${data.hospital || "—"}`,
@@ -153,6 +159,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
       valign: "middle",
       fontFace: "Arial",
       lineSpacing: 22,
+      ...PPTX_PARA_RTL,
     });
   }
 
@@ -175,6 +182,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
     bold: true,
     color: "171717",
     align: "right",
+    ...PPTX_PARA_RTL,
   });
   summary.addText(`الإجمالي: ${metrics.earned} / ${metrics.total}  •  ${metrics.percentage}٪`, {
     x: 0.4,
@@ -184,6 +192,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
     fontSize: 17,
     color: "404040",
     align: "right",
+    ...PPTX_PARA_RTL,
   });
 
   if (metrics.total > 0 && sections.length > 0) {
@@ -255,11 +264,12 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
       fontSize: 16,
       color: "737373",
       align: "right",
+      ...PPTX_PARA_RTL,
     });
   }
   addSlideFooter(summary, data);
 
-  const headerBase = { bold: true, fontSize: 13, color: "FFFFFF" as const, fill: { color: ACCENT } };
+  const headerBase = { bold: true, fontSize: 13, color: "FFFFFF" as const, fill: { color: ACCENT }, ...PPTX_PARA_RTL };
   const cellBorder = { pt: 0.5 as const, color: "E5E5E5" };
 
   const sectionScoreRow = (title: string, earned: number, total: number, percentage: number) => [
@@ -276,6 +286,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
           color: "171717",
           margin: [0.06, 0.1, 0.06, 0.1] as [number, number, number, number],
           border: cellBorder,
+          ...PPTX_PARA_RTL,
         },
       },
     ],
@@ -294,6 +305,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
       fontSize: 14,
       color: "94A3B8",
       align: "right",
+      ...PPTX_PARA_RTL,
     });
     sectionIntro.addText(section.title, {
       x: 0.5,
@@ -304,6 +316,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
       bold: true,
       color: "FFFFFF",
       align: "right",
+      ...PPTX_PARA_RTL,
     });
     sectionIntro.addText(`نتيجة القسم: ${earned} / ${total}   •   ${percentage}%`, {
       x: 0.5,
@@ -313,6 +326,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
       fontSize: 20,
       color: "E2E8F0",
       align: "right",
+      ...PPTX_PARA_RTL,
     });
     addSlideFooter(sectionIntro, data);
 
@@ -335,6 +349,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
       bold: true,
       color: ACCENT,
       align: "right",
+      ...PPTX_PARA_RTL,
     });
 
     const tableRows = [
@@ -351,7 +366,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
         return [
           {
             text: q.text,
-            options: { fontSize: 13, align: "right" as const, valign: "top" as const, border: cellBorder },
+            options: { fontSize: 13, align: "right" as const, valign: "top" as const, border: cellBorder, ...PPTX_PARA_RTL },
           },
           {
             text: ans,
@@ -362,6 +377,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
               align: "center" as const,
               valign: "middle" as const,
               border: cellBorder,
+              ...PPTX_PARA_RTL,
             },
           },
           {
@@ -372,6 +388,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
               align: "right" as const,
               valign: "top" as const,
               border: cellBorder,
+              ...PPTX_PARA_RTL,
             },
           },
         ];
@@ -416,6 +433,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
       bold: true,
       color: "171717",
       align: "right",
+      ...PPTX_PARA_RTL,
     });
     if (note) {
       slide.addText(note, {
@@ -427,6 +445,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
         color: "404040",
         align: "right",
         valign: "top",
+        ...PPTX_PARA_RTL,
       });
     }
     imgs.slice(0, 2).forEach((src, i) => {
@@ -460,6 +479,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
       color: "FFFFFF",
       align: "center",
       fontFace: "Arial",
+      ...PPTX_PARA_RTL,
     });
     end.addText("تجمع المدينة المنورة الصحي — @Med_Cluster", {
       x: 0.4,
@@ -470,6 +490,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
       color: "E2E8F0",
       align: "center",
       fontFace: "Arial",
+      ...PPTX_PARA_RTL,
     });
   }
 

@@ -20,6 +20,8 @@ import {
   BarChart3,
   LogIn,
   EllipsisVertical,
+  ListChecks,
+  ImagePlus,
 } from "lucide-react";
 import { INSPECTORS, HOSPITALS, SECTIONS } from "./constants";
 import { InspectionData, ScoreValue } from "./types";
@@ -38,7 +40,18 @@ import {
 } from "./inspection-utils";
 import { MHC_LOGO_PATH } from "./branding";
 import { downloadInspectionPptx } from "./export-pptx";
+import { downloadReportMakerPptx } from "./export-report-maker-pptx";
 import { downloadInspectionReportPdf, printInspectionReport } from "./pdf-export";
+import {
+  REPORT_MAKER_STORAGE_KEY,
+  REPORT_MAKER_STORAGE_VERSION,
+  addReportMakerItem,
+  calculateReportMakerScore,
+  createEmptyReportMaker,
+  normalizeReportMakerData,
+  removeReportMakerItem,
+  type ReportMakerData,
+} from "./report-maker-types";
 
 const SETUP_STEP_COUNT = 4;
 const DRAFT_STORAGE_KEY = "tour_draft";
@@ -50,7 +63,7 @@ const DRAFT_EMAIL_RECIPIENTS = [
   "welynfc1411@gmail.com",
 ] as const;
 
-type AppStep = "home" | "setup" | "inspection" | "report" | "presentation" | "history";
+type AppStep = "home" | "setup" | "inspection" | "report" | "presentation" | "history" | "report-maker";
 
 type DraftPayloadV2 = {
   v: typeof DRAFT_STORAGE_VERSION;
@@ -62,7 +75,7 @@ type DraftPayloadV2 = {
 };
 
 function normalizeAppStep(s: unknown): AppStep {
-  const allowed: AppStep[] = ["home", "setup", "inspection", "report", "presentation", "history"];
+  const allowed: AppStep[] = ["home", "setup", "inspection", "report", "presentation", "history", "report-maker"];
   return typeof s === "string" && (allowed as string[]).includes(s) ? (s as AppStep) : "home";
 }
 
@@ -187,6 +200,9 @@ export default function App() {
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [homeMsg, setHomeMsg] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState<"pdf" | "pptx" | null>(null);
+  /** مراجعة وتعديل القائمة قبل تنزيل أو إرسال PowerPoint */
+  const [pptReviewOpen, setPptReviewOpen] = useState(false);
+  const [pptReviewAction, setPptReviewAction] = useState<"download" | "email" | null>(null);
   /** معالج الإعداد: 0 فريق، 1 منشأة، 2 بنود ثم بدء الجولة */
   const [setupWizardStep, setSetupWizardStep] = useState(persistedBoot.setupWizardStep);
   const [showSectionGrid, setShowSectionGrid] = useState(false);
@@ -201,8 +217,39 @@ export default function App() {
 
   const reportRef = useRef<HTMLDivElement>(null);
   const presDirRef = useRef(1);
+  /** Step to restore when leaving السجل via header back (avoids dropping users on إعداد الجولة). */
+  const historyReturnStepRef = useRef<AppStep>("home");
   const headerNavRef = useRef<HTMLDivElement>(null);
   const [headerNavOpen, setHeaderNavOpen] = useState(false);
+
+  const [reportMakerData, setReportMakerData] = useState<ReportMakerData>(() => {
+    try {
+      const raw = localStorage.getItem(REPORT_MAKER_STORAGE_KEY);
+      if (!raw) return createEmptyReportMaker();
+      const parsed: unknown = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return createEmptyReportMaker();
+      const o = parsed as Record<string, unknown>;
+      if (o.v === REPORT_MAKER_STORAGE_VERSION && o.data && typeof o.data === "object") {
+        return normalizeReportMakerData(o.data as Partial<ReportMakerData>);
+      }
+      return createEmptyReportMaker();
+    } catch {
+      return createEmptyReportMaker();
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        REPORT_MAKER_STORAGE_KEY,
+        JSON.stringify({ v: REPORT_MAKER_STORAGE_VERSION, data: reportMakerData }),
+      );
+    } catch (e) {
+      console.warn("report_maker_save_failed", e);
+    }
+  }, [reportMakerData]);
+
+  const reportMakerScore = useMemo(() => calculateReportMakerScore(reportMakerData), [reportMakerData]);
 
   const activeSections = useMemo(() => getActiveSections(data), [data.skippedQuestionIds]);
   const totalScoreInfo = useMemo(() => calculateGlobalMetrics(data), [data.scores, data.skippedQuestionIds]);
@@ -370,6 +417,25 @@ export default function App() {
     }
   };
 
+  const openPptReviewForExport = (action: "download" | "email") => {
+    setPptReviewAction(action);
+    setPptReviewOpen(true);
+  };
+
+  const closePptReview = () => {
+    setPptReviewOpen(false);
+    setPptReviewAction(null);
+  };
+
+  const confirmPptReviewAndExport = async () => {
+    const action = pptReviewAction;
+    if (!action) return;
+    setPptReviewOpen(false);
+    setPptReviewAction(null);
+    if (action === "download") await runDownloadPptx();
+    else await downloadPptxAndPrepareDraftEmail();
+  };
+
   const openDraftEmailComposer = () => {
     const recipients = DRAFT_EMAIL_RECIPIENTS.join(",");
     const subject = `مسودة جولة غير مكتملة - ${data.hospital || "زيارة ميدانية"}`;
@@ -394,6 +460,37 @@ export default function App() {
     } catch (e) {
       console.error(e);
       setExportMsg("تعذر إنشاء ملف PowerPoint للمسودة.");
+    } finally {
+      setExportBusy(null);
+    }
+  };
+
+  const handleReportMakerImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach((file: File) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === "string") {
+          setReportMakerData((prev) => ({
+            ...prev,
+            images: [...prev.images, reader.result as string],
+          }));
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = "";
+  };
+
+  const runDownloadReportMakerPptx = async () => {
+    setExportMsg(null);
+    setExportBusy("pptx");
+    try {
+      await downloadReportMakerPptx(reportMakerData);
+    } catch (err) {
+      console.error(err);
+      setExportMsg("تعذر إنشاء ملف PowerPoint.");
     } finally {
       setExportBusy(null);
     }
@@ -483,7 +580,9 @@ export default function App() {
             ? "ملخص النتائج"
             : step === "history"
               ? "سجل الجولات"
-              : "جولة";
+              : step === "report-maker"
+                ? "صانع التقرير"
+                : "جولة";
 
   const headerSubtitle: string | null =
     step === "setup"
@@ -519,11 +618,17 @@ export default function App() {
       return;
     }
     if (step === "history") {
-      setStep("setup");
+      setStep(historyReturnStepRef.current);
+      window.scrollTo(0, 0);
       return;
     }
     if (step === "presentation") {
       setStep("report");
+      return;
+    }
+    if (step === "report-maker") {
+      setStep("home");
+      window.scrollTo(0, 0);
       return;
     }
     setStep("home");
@@ -588,10 +693,14 @@ export default function App() {
                 )}
 
                 <div className="flex items-center gap-1">
-                  {step === "home" && (
+                  {(step === "home" || step === "report-maker") && (
                     <button
                       type="button"
-                      onClick={() => setStep("history")}
+                      onClick={() => {
+                        historyReturnStepRef.current = step;
+                        setStep("history");
+                        window.scrollTo(0, 0);
+                      }}
                       className="flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-800 transition-colors hover:bg-zinc-100 active:bg-zinc-100/90"
                     >
                       <History className="h-3.5 w-3.5" aria-hidden />
@@ -650,6 +759,7 @@ export default function App() {
                               className="flex w-full items-center gap-2 px-3 py-2.5 text-right text-[13px] font-medium text-zinc-800 hover:bg-zinc-50"
                               onClick={() => {
                                 setHeaderNavOpen(false);
+                                historyReturnStepRef.current = step;
                                 setStep("history");
                                 window.scrollTo(0, 0);
                               }}
@@ -810,6 +920,26 @@ export default function App() {
                     ? "استأنف المسودة، أو اضغط «جولة جديدة» لتظهر قائمة النماذج."
                     : "اختر النموذج المتاح، وبقية النماذج قريبًا."}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHomeMsg(null);
+                    setStep("report-maker");
+                    window.scrollTo(0, 0);
+                  }}
+                  className="mt-4 flex w-full min-h-[3.25rem] items-center justify-between gap-3 rounded-xl border border-violet-200 bg-gradient-to-l from-violet-50 to-white px-4 py-3 text-right shadow-sm ring-1 ring-violet-100 transition hover:border-violet-300 hover:from-violet-50/90"
+                >
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="flex items-center gap-2 text-sm font-bold text-violet-950">
+                      <ListChecks className="h-4 w-4 shrink-0 text-violet-700" aria-hidden />
+                      صانع التقرير
+                    </span>
+                    <span className="text-[11px] font-medium leading-relaxed text-violet-800/85">
+                      قائمة تحقق، تقييم تلقائي، رفع صور، وتصدير PowerPoint
+                    </span>
+                  </span>
+                  <ChevronLeft className="h-4 w-4 shrink-0 text-violet-500" aria-hidden />
+                </button>
                 {hasDraftToResume ? (
                   <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3.5 sm:p-4">
                     <p className="text-sm font-semibold text-amber-950">توجد جولة غير مكتملة على هذا الجهاز</p>
@@ -840,7 +970,7 @@ export default function App() {
                       <button
                         type="button"
                         disabled={exportBusy !== null}
-                        onClick={downloadPptxAndPrepareDraftEmail}
+                        onClick={() => openPptReviewForExport("email")}
                         className="text-[12px] font-medium text-amber-900 underline decoration-amber-700/40 underline-offset-2 hover:decoration-amber-800 disabled:opacity-50"
                       >
                         {exportBusy === "pptx" ? "جارٍ التنزيل…" : "تنزيل وإرسال نسخة PPT من المسودة"}
@@ -967,6 +1097,201 @@ export default function App() {
                   ))}
                 </ul>
               )}
+            </motion.div>
+          )}
+
+          {step === "report-maker" && (
+            <motion.div
+              key="report-maker"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="space-y-4 pb-6"
+            >
+              <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
+                <h2 className="text-sm font-semibold text-zinc-900">بيانات التقرير</h2>
+                <p className="mt-1 text-[11px] text-zinc-500">يظهر العنوان والمنشأة والتاريخ على الغلاف وملف PowerPoint.</p>
+                <div className="mt-4 space-y-3">
+                  <label className="block text-[11px] font-semibold text-zinc-600">عنوان التقرير</label>
+                  <input
+                    type="text"
+                    value={reportMakerData.title}
+                    onChange={(e) => setReportMakerData((p) => ({ ...p, title: e.target.value }))}
+                    className="w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-3 py-2.5 text-sm outline-none focus:border-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
+                    placeholder="مثال: زيارة تفتيشية"
+                  />
+                  <label className="block text-[11px] font-semibold text-zinc-600">المنشأة (اختياري)</label>
+                  <input
+                    type="text"
+                    value={reportMakerData.facility}
+                    onChange={(e) => setReportMakerData((p) => ({ ...p, facility: e.target.value }))}
+                    className="w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-3 py-2.5 text-sm outline-none focus:border-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
+                    placeholder="اسم المنشأة"
+                  />
+                  <label className="block text-[11px] font-semibold text-zinc-600">التاريخ</label>
+                  <input
+                    type="date"
+                    value={reportMakerData.date}
+                    onChange={(e) => setReportMakerData((p) => ({ ...p, date: e.target.value }))}
+                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+                  />
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50/90 to-white p-4 sm:p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-bold text-emerald-950">التقييم التلقائي</h2>
+                    <p className="mt-0.5 text-[11px] text-emerald-900/80">يُحتسب من البنود التي عليها نص: ✓ = مكتمل.</p>
+                  </div>
+                  <div className="flex items-baseline gap-1.5 rounded-2xl border border-emerald-200 bg-white px-4 py-3 shadow-sm">
+                    <span className="text-3xl font-bold tabular-nums text-emerald-800">{reportMakerScore.percentage}</span>
+                    <span className="text-sm font-semibold text-emerald-700">٪</span>
+                  </div>
+                </div>
+                <p className="mt-3 text-center text-sm font-semibold tabular-nums text-emerald-900">
+                  {reportMakerScore.total === 0 ? (
+                    <span className="text-zinc-500">أضف نصاً لأي بند لبدء العد</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="mb-0.5 inline h-4 w-4 align-text-bottom text-emerald-600" aria-hidden />
+                      {` ${reportMakerScore.checked} من ${reportMakerScore.total} بند مكتمل`}
+                    </>
+                  )}
+                </p>
+              </section>
+
+              <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-sm font-semibold text-zinc-900">قائمة التحقق</h2>
+                  <button
+                    type="button"
+                    onClick={() => setReportMakerData((p) => addReportMakerItem(p))}
+                    className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-100"
+                  >
+                    <Plus className="h-3.5 w-3.5" aria-hidden />
+                    بند
+                  </button>
+                </div>
+                <ul className="mt-4 space-y-3">
+                  {reportMakerData.items.map((it) => (
+                    <li
+                      key={it.id}
+                      className="flex flex-col gap-2 rounded-xl border border-zinc-100 bg-zinc-50/60 p-3 sm:flex-row sm:items-start sm:gap-3"
+                    >
+                      <label className="flex shrink-0 cursor-pointer items-center gap-2 sm:flex-col sm:items-center sm:pt-1">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400 sm:order-2">تم</span>
+                        <input
+                          type="checkbox"
+                          checked={it.checked}
+                          onChange={(e) =>
+                            setReportMakerData((p) => ({
+                              ...p,
+                              items: p.items.map((row) => (row.id === it.id ? { ...row, checked: e.target.checked } : row)),
+                            }))
+                          }
+                          className="h-5 w-5 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
+                          aria-label={`تم تنفيذ: ${it.text.slice(0, 40) || "بند فارغ"}`}
+                        />
+                      </label>
+                      <textarea
+                        dir="auto"
+                        value={it.text}
+                        onChange={(e) =>
+                          setReportMakerData((p) => ({
+                            ...p,
+                            items: p.items.map((row) => (row.id === it.id ? { ...row, text: e.target.value } : row)),
+                          }))
+                        }
+                        rows={2}
+                        placeholder="نص البند…"
+                        className="min-h-[3rem] w-full flex-1 resize-y rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm leading-relaxed outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10 [unicode-bidi:plaintext]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setReportMakerData((p) => removeReportMakerItem(p, it.id))}
+                        className="self-end rounded-lg border border-zinc-200 p-2 text-zinc-400 hover:border-red-200 hover:bg-red-50 hover:text-red-600 sm:self-start"
+                        aria-label="حذف البند"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
+                <h2 className="text-sm font-semibold text-zinc-900">ملاحظات عامة</h2>
+                <textarea
+                  value={reportMakerData.notes}
+                  onChange={(e) => setReportMakerData((p) => ({ ...p, notes: e.target.value }))}
+                  rows={4}
+                  placeholder="ملاحظات تظهر في التقرير وملف العرض…"
+                  className="mt-3 w-full resize-y rounded-xl border border-zinc-200 bg-zinc-50/50 px-3 py-2.5 text-sm outline-none focus:border-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
+                />
+              </section>
+
+              <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-sm font-semibold text-zinc-900">صور مرفقة</h2>
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-100">
+                    <ImagePlus className="h-3.5 w-3.5" aria-hidden />
+                    رفع صور
+                    <input type="file" multiple accept="image/*" className="hidden" onChange={handleReportMakerImageUpload} />
+                  </label>
+                </div>
+                {reportMakerData.images.length === 0 ? (
+                  <p className="mt-3 text-center text-[12px] text-zinc-500">لا توجد صور بعد — تُدرج كل صورة في شريحة منفصلة داخل PowerPoint.</p>
+                ) : (
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {reportMakerData.images.map((img, i) => (
+                      <div key={`${i}-${img.slice(0, 32)}`} className="relative aspect-video overflow-hidden rounded-lg border border-zinc-100">
+                        <img src={img} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setReportMakerData((p) => ({
+                              ...p,
+                              images: p.images.filter((_, idx) => idx !== i),
+                            }))
+                          }
+                          className="absolute end-1 top-1 rounded bg-red-600 p-0.5 text-white shadow-sm"
+                          aria-label="حذف الصورة"
+                        >
+                          <XCircle className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+                <button
+                  type="button"
+                  disabled={exportBusy !== null}
+                  onClick={() => void runDownloadReportMakerPptx()}
+                  className="flex min-h-[2.75rem] items-center justify-center gap-2 rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  <Presentation className="h-4 w-4" aria-hidden />
+                  {exportBusy === "pptx" ? "جارٍ إنشاء الملف…" : "تنزيل PowerPoint"}
+                </button>
+                <button
+                  type="button"
+                  disabled={exportBusy !== null}
+                  onClick={() => {
+                    if (!window.confirm("مسح كل محتوى صانع التقرير وإعادة البدء؟")) return;
+                    setReportMakerData(createEmptyReportMaker());
+                    setExportMsg(null);
+                  }}
+                  className="min-h-[2.75rem] rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  مسح وبدء جديد
+                </button>
+              </div>
+              {exportMsg && step === "report-maker" ? (
+                <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-800">{exportMsg}</p>
+              ) : null}
             </motion.div>
           )}
 
@@ -1392,7 +1717,7 @@ export default function App() {
                 <button
                   type="button"
                   disabled={exportBusy !== null}
-                  onClick={runDownloadPptx}
+                  onClick={() => openPptReviewForExport("download")}
                   className="flex items-center justify-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
                 >
                   <Download className="h-3.5 w-3.5" />
@@ -1401,7 +1726,7 @@ export default function App() {
                 <button
                   type="button"
                   disabled={exportBusy !== null}
-                  onClick={downloadPptxAndPrepareDraftEmail}
+                  onClick={() => openPptReviewForExport("email")}
                   className="flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-60"
                 >
                   <Mail className="h-3.5 w-3.5" />
@@ -1780,6 +2105,153 @@ export default function App() {
               اختر نعم أو لا أو N/A للمتابعة
             </p>
           )}
+        </div>
+      )}
+
+      {pptReviewOpen && (
+        <div
+          className="fixed inset-0 z-[120] flex items-end justify-center sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ppt-review-title"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-zinc-950/55 backdrop-blur-[2px]"
+            onClick={closePptReview}
+            aria-label="إغلاق المراجعة"
+          />
+          <div className="relative flex min-h-0 max-h-[min(92dvh,880px)] w-full max-w-2xl flex-col rounded-t-2xl border border-zinc-200 bg-white shadow-2xl sm:max-h-[85dvh] sm:rounded-2xl">
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-zinc-100 px-4 py-3 sm:px-5">
+              <div>
+                <h2 id="ppt-review-title" className="text-base font-bold text-zinc-900">
+                  مراجعة القائمة قبل PowerPoint
+                </h2>
+                <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
+                  عدّل التقييم (نعم / لا / N/A) أو الملاحظات، ثم أكّد التنزيل. التعديلات تُحفَظ في التقرير.
+                </p>
+                {data.hospital ? <p className="mt-1.5 text-[11px] font-medium text-zinc-600">{data.hospital}</p> : null}
+              </div>
+              <button
+                type="button"
+                onClick={closePptReview}
+                className="shrink-0 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+              >
+                إغلاق
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5">
+              {activeSections.length === 0 ? (
+                <p className="text-sm text-zinc-600">لا توجد أقسام مفعّلة في الجولة. يمكنك المتابعة للتنزيل أو الرجوع للإعداد.</p>
+              ) : (
+                <div className="space-y-8">
+                  {activeSections.map((section) => (
+                    <div key={section.id} className="rounded-xl border border-zinc-100 bg-zinc-50/40 p-3 sm:p-4">
+                      <h3 className="text-sm font-bold text-zinc-900">{section.title}</h3>
+                      <label className="mt-3 block text-[11px] font-semibold text-zinc-600">ملاحظة القسم (تظهر في العرض وملف PPT)</label>
+                      <textarea
+                        value={data.sectionNotes[section.id] || ""}
+                        onChange={(e) =>
+                          setData((prev) => ({
+                            ...prev,
+                            sectionNotes: { ...prev.sectionNotes, [section.id]: e.target.value },
+                          }))
+                        }
+                        rows={2}
+                        className="mt-1.5 w-full resize-y rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/15"
+                        placeholder="اختياري…"
+                      />
+                      <div className="mt-4 space-y-4">
+                        {section.questions.map((q) => (
+                          <div key={q.id} className="rounded-lg border border-zinc-200/80 bg-white p-3">
+                            <p dir="auto" className="text-sm font-medium leading-snug text-zinc-800 [unicode-bidi:plaintext] break-words">
+                              {q.text}
+                            </p>
+                            <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">التقييم</p>
+                            <div className="mt-1.5 grid grid-cols-3 gap-2">
+                              {(
+                                [
+                                  { val: "yes" as const, label: "نعم" },
+                                  { val: "no" as const, label: "لا" },
+                                  { val: "na" as const, label: "N/A" },
+                                ] as const
+                              ).map((opt) => {
+                                const selected = data.scores[q.id] === opt.val;
+                                const lane =
+                                  opt.val === "yes"
+                                    ? selected
+                                      ? "border-emerald-600 bg-emerald-600 text-white ring-1 ring-emerald-400/40"
+                                      : "border-emerald-200 bg-emerald-50/80 text-emerald-900 hover:bg-emerald-100"
+                                    : opt.val === "no"
+                                      ? selected
+                                        ? "border-red-600 bg-red-600 text-white ring-1 ring-red-400/40"
+                                        : "border-red-200 bg-red-50/80 text-red-900 hover:bg-red-100"
+                                      : selected
+                                        ? "border-blue-600 bg-blue-600 text-white ring-1 ring-blue-400/40"
+                                        : "border-blue-200 bg-blue-50/80 text-blue-900 hover:bg-blue-100";
+                                return (
+                                  <button
+                                    key={opt.val}
+                                    type="button"
+                                    onClick={() =>
+                                      setData((prev) => ({
+                                        ...prev,
+                                        scores: { ...prev.scores, [q.id]: opt.val },
+                                      }))
+                                    }
+                                    className={`min-h-[40px] rounded-xl border-2 px-2 py-2 text-xs font-bold transition active:scale-[0.98] sm:text-sm ${lane}`}
+                                  >
+                                    {opt.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <label className="mt-3 block text-[11px] font-semibold text-zinc-600">ملاحظة البند</label>
+                            <textarea
+                              value={data.itemNotes[q.id] || ""}
+                              onChange={(e) =>
+                                setData((prev) => ({
+                                  ...prev,
+                                  itemNotes: { ...prev.itemNotes, [q.id]: e.target.value },
+                                }))
+                              }
+                              rows={2}
+                              className="mt-1 w-full resize-y rounded-lg border border-zinc-200 bg-zinc-50/50 px-3 py-2 text-xs outline-none focus:border-zinc-400 focus:bg-white focus:ring-2 focus:ring-zinc-900/10 sm:text-sm"
+                              placeholder="اختياري…"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex shrink-0 flex-col gap-2 border-t border-zinc-100 bg-white px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end sm:px-5">
+              <button
+                type="button"
+                onClick={closePptReview}
+                disabled={exportBusy === "pptx"}
+                className="min-h-11 rounded-xl border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 sm:min-w-[7rem]"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={exportBusy === "pptx" || pptReviewAction === null}
+                onClick={() => void confirmPptReviewAndExport()}
+                className="min-h-11 rounded-xl bg-zinc-900 px-4 text-sm font-bold text-white shadow-sm hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[11rem]"
+              >
+                {exportBusy === "pptx"
+                  ? "جارٍ التنزيل…"
+                  : pptReviewAction === "email"
+                    ? "تنزيل وفتح البريد"
+                    : "تنزيل PowerPoint"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

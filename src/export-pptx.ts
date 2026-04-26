@@ -28,6 +28,11 @@ const ACCENT = "0f172a";
 const ACCENT_LIGHT = "334155";
 /** Masks the baked-in date line on the cover template so we can print live tour metadata. */
 const COVER_MASK_FILL = "274f7d";
+/** Cover metadata band: tall enough for 4 lines of Arabic at ~14pt without overlap (~22pt leading). */
+const COVER_META_BAND_H = 1.28;
+const COVER_META_FONT = 14;
+/** Points — explicit leading so PptxGenJS does not stack lines in a short text box. */
+const COVER_META_LINE_SPACING = 22;
 
 function gregorianSlashFromIso(iso: string): string {
   if (!iso?.trim()) return "—";
@@ -70,30 +75,33 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
     title.background = { data: coverBgB64 };
     title.addShape(pptx.ShapeType.rect, {
       x: 0.25,
-      y: 3.02,
+      y: 2.98,
       w: 9.5,
-      h: 0.72,
+      h: COVER_META_BAND_H,
       fill: { color: COVER_MASK_FILL },
       line: { width: 0 },
     });
     const metaLines = [
       `تقرير الجولة: ${data.hospital || "—"}`,
-      `التاريخ: ${gregorianSlashFromIso(data.date)}م   •   الامتثال: ${metrics.percentage}٪`,
+      `التاريخ: ${gregorianSlashFromIso(data.date)}م`,
+      `الامتثال: ${metrics.percentage}٪`,
     ];
     if (data.inspectors.length) {
       metaLines.push(`فريق الجولة: ${data.inspectors.join("، ")}`);
     }
     title.addText(metaLines.join("\n"), {
       x: 0.35,
-      y: 3.05,
+      y: 3.0,
       w: 9.3,
-      h: 0.68,
-      fontSize: 15,
+      h: COVER_META_BAND_H - 0.02,
+      fontSize: COVER_META_FONT,
       bold: true,
       color: "FFFFFF",
       align: "center",
       valign: "middle",
       fontFace: "Arial",
+      lineSpacing: COVER_META_LINE_SPACING,
+      margin: [6, 10, 6, 10],
     });
   } else {
     title.background = { color: "1a3a5c" };
@@ -106,40 +114,46 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
         h: 0.85,
       });
     }
-    title.addText(
-      [
-        "الإدارة التنفيذية للصحة العامة المجتمعية",
-        "إدارة الطب الوقائي",
-        "مكافحة العدوى المجتمعية",
-        "جولة إشرافية للمنشآت الصحية لموسم حج 1447هـ",
-        `تقرير الجولة: ${data.hospital || "—"}`,
-        `التاريخ: ${gregorianSlashFromIso(data.date)}م   •   الامتثال: ${metrics.percentage}٪`,
-      ].join("\n"),
-      {
-        x: 0.5,
-        y: 1.15,
-        w: 9,
-        h: 3.5,
-        fontSize: 20,
-        bold: true,
-        color: "FFFFFF",
-        align: "center",
-        valign: "middle",
-        fontFace: "Arial",
-      },
-    );
+    const titleBodyLines = [
+      "الإدارة التنفيذية للصحة العامة المجتمعية",
+      "إدارة الطب الوقائي",
+      "مكافحة العدوى المجتمعية",
+      "جولة إشرافية للمنشآت الصحية لموسم حج 1447هـ",
+    ];
+    title.addText(titleBodyLines.join("\n"), {
+      x: 0.5,
+      y: 1.05,
+      w: 9,
+      h: 2.35,
+      fontSize: 20,
+      bold: true,
+      color: "FFFFFF",
+      align: "center",
+      valign: "middle",
+      fontFace: "Arial",
+      lineSpacing: 28,
+    });
+    const metaNoCover = [
+      `تقرير الجولة: ${data.hospital || "—"}`,
+      `التاريخ: ${gregorianSlashFromIso(data.date)}م`,
+      `الامتثال: ${metrics.percentage}٪`,
+    ];
     if (data.inspectors.length) {
-      title.addText(`فريق الجولة: ${data.inspectors.join("، ")}`, {
-        x: 0.5,
-        y: 4.85,
-        w: 9,
-        h: 0.5,
-        fontSize: 14,
-        color: "E2E8F0",
-        align: "center",
-        fontFace: "Arial",
-      });
+      metaNoCover.push(`فريق الجولة: ${data.inspectors.join("، ")}`);
     }
+    title.addText(metaNoCover.join("\n"), {
+      x: 0.5,
+      y: 3.55,
+      w: 9,
+      h: 1.35,
+      fontSize: 15,
+      bold: true,
+      color: "FFFFFF",
+      align: "center",
+      valign: "middle",
+      fontFace: "Arial",
+      lineSpacing: 22,
+    });
   }
 
   const summary = pptx.addSlide();

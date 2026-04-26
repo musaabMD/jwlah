@@ -42,6 +42,7 @@ import { MHC_LOGO_PATH } from "./branding";
 import { downloadInspectionPptx } from "./export-pptx";
 import { downloadReportMakerPptx } from "./export-report-maker-pptx";
 import { ReportMakerPptSlideReview } from "./ReportMakerPptSlideReview";
+import { ReportMakerChecklistSteps } from "./ReportMakerChecklistSteps";
 import { downloadInspectionReportPdf, printInspectionReport } from "./pdf-export";
 import {
   REPORT_MAKER_STORAGE_KEY,
@@ -1249,108 +1250,12 @@ export default function App() {
                 </p>
               </section>
 
-              <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
-                <h2 className="text-sm font-semibold text-zinc-900">بنود الفحص</h2>
-                <p className="mt-1 text-[11px] text-zinc-500">
-                  جميع بنود التقييم المعتمدة — ضع علامة عند الإنجاز، وأضف ملاحظة أو صوراً لكل بند عند الحاجة.
-                </p>
-                <div className="mt-4 max-h-[min(72vh,640px)] space-y-6 overflow-y-auto pe-1">
-                  {SECTIONS.map((sec) => (
-                    <div key={sec.id} className="border-b border-zinc-100 pb-5 last:border-b-0 last:pb-0">
-                      <h3 className="mb-3 text-left text-[11px] font-bold leading-snug text-zinc-700 [text-wrap:balance] sm:text-right">
-                        {sec.title}
-                      </h3>
-                      <ul className="space-y-3">
-                        {sec.questions.map((q) => {
-                          const it = reportMakerItemById.get(q.id);
-                          if (!it) return null;
-                          return (
-                            <li
-                              key={q.id}
-                              className="flex flex-col gap-3 rounded-xl border border-zinc-100 bg-zinc-50/60 p-3 sm:flex-row sm:items-start sm:gap-3"
-                            >
-                              <label className="flex shrink-0 cursor-pointer items-center gap-2 sm:flex-col sm:items-center sm:pt-1">
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400 sm:order-2">تم</span>
-                                <input
-                                  type="checkbox"
-                                  checked={it.checked}
-                                  onChange={(e) =>
-                                    setReportMakerData((p) => ({
-                                      ...p,
-                                      items: p.items.map((row) =>
-                                        row.id === it.id ? { ...row, checked: e.target.checked } : row,
-                                      ),
-                                    }))
-                                  }
-                                  className="h-5 w-5 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
-                                  aria-label={`تم تنفيذ: ${it.text.slice(0, 80)}`}
-                                />
-                              </label>
-                              <div className="min-w-0 flex-1 space-y-2">
-                                <p
-                                  dir="auto"
-                                  className="text-left text-sm font-medium leading-relaxed text-zinc-900 [text-wrap:pretty] sm:text-right [unicode-bidi:plaintext]"
-                                >
-                                  {it.text}
-                                </p>
-                                <label className="block text-[10px] font-semibold text-zinc-500">ملاحظة على البند</label>
-                                <textarea
-                                  dir="auto"
-                                  value={it.note}
-                                  onChange={(e) =>
-                                    setReportMakerData((p) => ({
-                                      ...p,
-                                      items: p.items.map((row) =>
-                                        row.id === it.id ? { ...row, note: e.target.value } : row,
-                                      ),
-                                    }))
-                                  }
-                                  rows={2}
-                                  placeholder="اختياري…"
-                                  className="w-full resize-y rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm leading-relaxed outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10 [unicode-bidi:plaintext]"
-                                />
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[10px] font-semibold text-zinc-800 hover:bg-zinc-50">
-                                    <ImagePlus className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                                    صور للبند
-                                    <input
-                                      type="file"
-                                      multiple
-                                      accept="image/*"
-                                      className="hidden"
-                                      onChange={(ev) => handleReportMakerItemImageUpload(it.id, ev)}
-                                    />
-                                  </label>
-                                </div>
-                                {it.images.length > 0 ? (
-                                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                                    {it.images.map((img, idx) => (
-                                      <div
-                                        key={`${it.id}-${idx}-${img.slice(0, 24)}`}
-                                        className="relative aspect-video overflow-hidden rounded-lg border border-zinc-100"
-                                      >
-                                        <img src={img} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-                                        <button
-                                          type="button"
-                                          onClick={() => removeReportMakerItemImage(it.id, idx)}
-                                          className="absolute end-1 top-1 rounded bg-red-600 p-0.5 text-white shadow-sm"
-                                          aria-label="حذف الصورة"
-                                        >
-                                          <XCircle className="h-3.5 w-3.5" />
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
-              </section>
+              <ReportMakerChecklistSteps
+                data={reportMakerData}
+                setData={setReportMakerData}
+                onItemImageUpload={handleReportMakerItemImageUpload}
+                onRemoveItemImage={removeReportMakerItemImage}
+              />
 
               <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
                 <h2 className="text-sm font-semibold text-zinc-900">ملاحظات عامة</h2>

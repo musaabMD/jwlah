@@ -1,6 +1,7 @@
-import React, { useMemo, ChangeEvent, useCallback } from "react";
+import React, { useMemo, useState, useEffect, ChangeEvent, useCallback } from "react";
 import { CheckCircle2, ImagePlus } from "lucide-react";
-import { SECTIONS, INSPECTORS, HOSPITALS } from "./constants";
+import { INSPECTORS, HOSPITALS } from "./constants";
+import { ReportMakerChecklistSteps } from "./ReportMakerChecklistSteps";
 import { MHC_LOGO_PATH } from "./branding";
 import type { ReportMakerData } from "./report-maker-types";
 import { calculateReportMakerScore } from "./report-maker-types";
@@ -31,9 +32,18 @@ export function ReportMakerPptSlideReview({ data, setData }: Props) {
   const score = useMemo(() => calculateReportMakerScore(data), [data]);
   const exportSlideCount = useMemo(() => countReportMakerPptExportSlides(data), [data]);
 
-  const scrollToSlide = useCallback((id: string) => {
-    document.getElementById(`rm-ppt-slide-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, []);
+  const [selectedSlideId, setSelectedSlideId] = useState("");
+  useEffect(() => {
+    if (slides.length === 0) return;
+    if (!selectedSlideId || !slides.some((s) => s.id === selectedSlideId)) {
+      setSelectedSlideId(slides[0].id);
+    }
+  }, [slides, selectedSlideId]);
+
+  const activeSlide = useMemo(
+    () => slides.find((s) => s.id === selectedSlideId) ?? slides[0] ?? null,
+    [slides, selectedSlideId],
+  );
 
   const readFilesAsDataUrls = useCallback((files: FileList, onEach: (url: string) => void) => {
     Array.from(files).forEach((file) => {
@@ -172,63 +182,13 @@ export function ReportMakerPptSlideReview({ data, setData }: Props) {
 
       case "checklist":
         return (
-          <div>
-            <p className="mb-2 text-[11px] text-zinc-500">عدّل التمييز والملاحظة لكل بند — يظهر في جدول الشريحة الثانية.</p>
-            <div className="max-h-[42dvh] space-y-3 overflow-y-auto pe-0.5">
-              {SECTIONS.map((sec) => (
-                <div key={sec.id} className="rounded-lg border border-zinc-100 bg-zinc-50/60 p-2">
-                  <p className="mb-2 text-[10px] font-bold text-zinc-600">{sec.title}</p>
-                  <ul className="space-y-2">
-                    {sec.questions.map((q) => {
-                      const it = itemById.get(q.id);
-                      if (!it) return null;
-                      return (
-                        <li key={q.id} className="flex gap-2 rounded-md border border-zinc-100 bg-white p-2">
-                          <input
-                            type="checkbox"
-                            checked={it.checked}
-                            onChange={(e) =>
-                              setData((p) => ({
-                                ...p,
-                                items: p.items.map((row) =>
-                                  row.id === it.id ? { ...row, checked: e.target.checked } : row,
-                                ),
-                              }))
-                            }
-                            className="mt-1.5 h-4 w-4 shrink-0 rounded border-zinc-300 text-zinc-900"
-                            aria-label="تم"
-                          />
-                          <div className="min-w-0 flex-1 space-y-1.5">
-                            <p
-                              dir="auto"
-                              className="text-left text-xs font-medium leading-snug text-zinc-900 sm:text-right [unicode-bidi:plaintext]"
-                            >
-                              {it.text}
-                            </p>
-                            <textarea
-                              dir="auto"
-                              value={it.note}
-                              onChange={(e) =>
-                                setData((p) => ({
-                                  ...p,
-                                  items: p.items.map((row) =>
-                                    row.id === it.id ? { ...row, note: e.target.value } : row,
-                                  ),
-                                }))
-                              }
-                              rows={2}
-                              placeholder="ملاحظة البند…"
-                              className="w-full resize-y rounded border border-zinc-200 bg-zinc-50/50 px-2 py-1 text-[11px] outline-none focus:ring-2 focus:ring-zinc-900/10 [unicode-bidi:plaintext]"
-                            />
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </div>
+          <ReportMakerChecklistSteps
+            compact
+            data={data}
+            setData={setData}
+            onItemImageUpload={onItemImagesAppend}
+            onRemoveItemImage={onRemoveItemImage}
+          />
         );
 
       case "notes":
@@ -324,53 +284,58 @@ export function ReportMakerPptSlideReview({ data, setData }: Props) {
 
 
   return (
-    <div className="space-y-4">
-      <p className="text-[11px] leading-relaxed text-zinc-500">
-        معاينة ترتيب الشرائح كما في ملف PowerPoint. عدّل كل قسم أدناه؛ الشرائح التي لن تُصدَّر (مثل الملاحظات الفارغة) مذكورة في البطاقة.
+    <div className="flex min-h-0 flex-1 flex-col gap-3" dir="rtl">
+      <p className="shrink-0 text-[11px] leading-relaxed text-zinc-500">
+        اختر شريحة من القائمة الجانبية — تظهر المعاينة والتعديل في اللوحة الرئيسية. الشرائح التي لن تُصدَّر (مثل الملاحظات الفارغة) موضّحة في البطاقة.
         <span className="mt-1 block font-semibold tabular-nums text-zinc-700">
           عدد الشرائح في الملف بعد التصدير: {exportSlideCount}
         </span>
       </p>
 
-      <nav
-        className="sticky top-0 z-[1] flex flex-wrap gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50/95 p-2 backdrop-blur-sm"
-        aria-label="انتقال سريع بين الشرائح"
-      >
-        {slides.map((s) => (
-          <button
-            key={`nav-${s.id}`}
-            type="button"
-            onClick={() => scrollToSlide(s.id)}
-            className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[10px] font-semibold text-zinc-800 hover:border-zinc-900 hover:bg-zinc-50"
-          >
-            {s.n}. {s.labelAr}
-          </button>
-        ))}
-      </nav>
+      <div className="flex min-h-[280px] flex-1 flex-col gap-3 sm:min-h-[360px] sm:flex-row sm:gap-4">
+        <aside className="flex max-h-40 shrink-0 flex-col gap-1 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50/90 sm:max-h-none sm:w-52 sm:border-s sm:ps-2">
+          <p className="shrink-0 px-2 pt-2 text-[10px] font-bold uppercase tracking-wide text-zinc-500">الشرائح</p>
+          <div className="flex flex-row gap-1 overflow-x-auto px-2 pb-2 sm:flex-col sm:overflow-y-auto sm:px-1 sm:pb-2">
+            {slides.map((s) => {
+              const sel = s.id === selectedSlideId;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setSelectedSlideId(s.id)}
+                  className={`shrink-0 rounded-lg border px-2.5 py-2 text-start text-[11px] font-semibold transition-colors sm:w-full ${
+                    sel
+                      ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+                      : "border-transparent bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-100"
+                  }`}
+                >
+                  <span className="tabular-nums text-zinc-400">{s.n}.</span> {s.labelAr}
+                </button>
+              );
+            })}
+          </div>
+        </aside>
 
-      <div className="space-y-6">
-        {slides.map((slide) => (
-          <article
-            key={slide.id}
-            id={`rm-ppt-slide-${slide.id}`}
-            className="scroll-mt-24 rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm sm:p-4"
-          >
-            <header className="mb-3 flex flex-wrap items-baseline justify-between gap-2 border-b border-zinc-100 pb-2">
-              <h3 className="text-sm font-bold text-zinc-900">
-                الشريحة {slide.n}: {slide.labelAr}
-              </h3>
-              <span className="text-[10px] font-medium text-zinc-400">16:9</span>
-            </header>
-
-            <SlideVisual slide={slide} data={data} itemById={itemById} score={score} />
-
-            <div className="mt-4 border-t border-zinc-100 pt-4">{renderEditor(slide)}</div>
-          </article>
-        ))}
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-3 shadow-sm sm:p-4">
+          {activeSlide ? (
+            <>
+              <header className="mb-3 flex flex-wrap items-baseline justify-between gap-2 border-b border-zinc-100 pb-2">
+                <h3 className="text-sm font-bold text-zinc-900">
+                  الشريحة {activeSlide.n}: {activeSlide.labelAr}
+                </h3>
+                <span className="text-[10px] font-medium text-zinc-400">معاينة 16:9</span>
+              </header>
+              <SlideVisual slide={activeSlide} data={data} itemById={itemById} score={score} />
+              <div className="mt-4 border-t border-zinc-100 pt-4">{renderEditor(activeSlide)}</div>
+            </>
+          ) : (
+            <p className="text-sm text-zinc-500">لا شرائح للعرض.</p>
+          )}
+        </main>
       </div>
 
-      <p className="text-[11px] text-zinc-500">
-        يمكنك إضافة أو استبدال صور المرفقات العامة من بطاقة «مرفق» أعلاه، وصور البنود من بطاقات «صورة: …» أو من الصفحة الرئيسية.
+      <p className="shrink-0 text-[11px] text-zinc-500">
+        صور المرفقات العامة والبنود: تعديل من لوحة الشريحة الحالية أو من الصفحة الرئيسية لصانع التقرير.
       </p>
     </div>
   );

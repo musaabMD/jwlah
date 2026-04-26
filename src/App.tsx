@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Download,
   Plus,
+  PlayCircle,
   Presentation,
   History,
   Trash2,
@@ -26,22 +27,6 @@ import {
 } from "lucide-react";
 import { INSPECTORS, HOSPITALS, SECTIONS } from "./constants";
 
-function parseReportMakerIsoDate(iso: string): { y: number; m: number; d: number } {
-  const part = typeof iso === "string" ? iso.split("T")[0] : "";
-  const [ys, ms, ds] = part.split("-");
-  const y = parseInt(ys ?? "", 10);
-  const m = parseInt(ms ?? "", 10);
-  const d = parseInt(ds ?? "", 10);
-  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d) || m < 1 || m > 12 || d < 1) {
-    const n = new Date();
-    return { y: n.getFullYear(), m: n.getMonth() + 1, d: n.getDate() };
-  }
-  return { y, m, d };
-}
-
-function daysInMonthCount(y: number, m: number): number {
-  return new Date(y, m, 0).getDate();
-}
 import { InspectionData, ScoreValue } from "./types";
 import {
   calculateGlobalMetrics,
@@ -70,6 +55,7 @@ import {
   calculateReportMakerScore,
   createEmptyReportMaker,
   normalizeReportMakerData,
+  todayLocalISO,
   type ReportMakerData,
 } from "./report-maker-types";
 
@@ -184,18 +170,14 @@ const SETUP_WIZARD_STEPS = [
   { label: "البنود" },
 ] as const;
 
-function localISODate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function todayLocalISO(): string {
-  const d = new Date();
-  d.setHours(12, 0, 0, 0);
-  return localISODate(d);
-}
+const REPORT_MAKER_WIZARD_STEPS = [
+  { label: "بيانات التقرير", hint: "العنوان، المنشأة، المكلفون — التاريخ يوم اليوم تلقائياً" },
+  { label: "غلاف التقرير", hint: "معاينة أولى فقط" },
+  { label: "بنود الفحص", hint: "أكمل البنود سطراً بسطر" },
+  { label: "ملاحظات وصور", hint: "عامة للتقرير" },
+  { label: "تصدير", hint: "مراجعة الشرائح ثم التنزيل" },
+] as const;
+const REPORT_MAKER_WIZARD_LAST = REPORT_MAKER_WIZARD_STEPS.length - 1;
 
 const PRES_VARIANTS = {
   enter: (dir: number) => ({
@@ -227,8 +209,12 @@ export default function App() {
   const [reportMakerPptReviewOpen, setReportMakerPptReviewOpen] = useState(false);
   /** عند فتح المراجعة من القائمة: معرّف الشريحة المطلوبة أولاً (يُستهلك داخل المراجعة). */
   const [reportMakerPptInitialSlideId, setReportMakerPptInitialSlideId] = useState<string | undefined>(undefined);
+  /** صانع التقرير: معالج خطوة بخطوة (صفحة واحدة = خطوة واحدة) */
+  const [reportMakerWizardStep, setReportMakerWizardStep] = useState(0);
   const [reportMakerInspectorsOpen, setReportMakerInspectorsOpen] = useState(false);
   const reportMakerInspectorsRef = useRef<HTMLDivElement>(null);
+  const [reportMakerSectionFocusId, setReportMakerSectionFocusId] = useState<string>(() => SECTIONS[0]?.id ?? "");
+  const [reportMakerSectionStage, setReportMakerSectionStage] = useState<"pick" | "edit">("pick");
   /** معالج الإعداد: 0 فريق، 1 منشأة، 2 بنود ثم بدء الجولة */
   const [setupWizardStep, setSetupWizardStep] = useState(persistedBoot.setupWizardStep);
   const [showSectionGrid, setShowSectionGrid] = useState(false);
@@ -281,6 +267,23 @@ export default function App() {
   }, [step]);
 
   useEffect(() => {
+    if (step !== "report-maker") setReportMakerWizardStep(0);
+  }, [step]);
+
+  useEffect(() => {
+    if (reportMakerWizardStep !== 2) {
+      setReportMakerSectionStage("pick");
+    }
+  }, [reportMakerWizardStep]);
+
+  /** تاريخ التقرير دائماً يوم الجاري عند دخول صانع التقرير */
+  useEffect(() => {
+    if (step !== "report-maker") return;
+    const d = todayLocalISO();
+    setReportMakerData((p) => (p.date === d ? p : { ...p, date: d }));
+  }, [step]);
+
+  useEffect(() => {
     if (!reportMakerInspectorsOpen) return;
     const onPointerDown = (e: PointerEvent) => {
       const el = reportMakerInspectorsRef.current;
@@ -292,10 +295,49 @@ export default function App() {
 
   const reportMakerScore = useMemo(() => calculateReportMakerScore(reportMakerData), [reportMakerData]);
   const reportMakerPptSlidePlan = useMemo(() => buildReportMakerPptSlides(reportMakerData), [reportMakerData]);
-  const reportMakerItemById = useMemo(
-    () => new Map(reportMakerData.items.map((it) => [it.id, it] as const)),
-    [reportMakerData.items],
+  const hasReportMakerFacility = Boolean(reportMakerData.facility.trim());
+  const canAdvanceReportMakerStep = reportMakerWizardStep !== 0 || hasReportMakerFacility;
+  const reportMakerItemsById = useMemo(() => new Map(reportMakerData.items.map((it) => [it.id, it] as const)), [reportMakerData.items]);
+  const reportMakerSectionMetrics = useMemo(
+    () =>
+      SECTIONS.map((sec) => {
+        let total = 0;
+        let checked = 0;
+        for (const q of sec.questions) {
+          const row = reportMakerItemsById.get(q.id);
+          if (!row) continue;
+          total += 1;
+          if (row.checked) checked += 1;
+        }
+        const pct = total > 0 ? Math.round((checked / total) * 100) : 0;
+        return { id: sec.id, title: sec.title, checked, total, pct };
+      }),
+    [reportMakerItemsById],
   );
+  const activeReportMakerSectionId =
+    SECTIONS.some((s) => s.id === reportMakerSectionFocusId) ? reportMakerSectionFocusId : (SECTIONS[0]?.id ?? "");
+  const activeReportMakerSectionMeta = useMemo(
+    () => reportMakerSectionMetrics.find((s) => s.id === activeReportMakerSectionId),
+    [reportMakerSectionMetrics, activeReportMakerSectionId],
+  );
+  const hasReportMakerProgress = useMemo(
+    () =>
+      Boolean(reportMakerData.facility?.trim()) ||
+      reportMakerData.inspectors.length > 0 ||
+      Boolean(reportMakerData.notes?.trim()) ||
+      reportMakerData.images.length > 0 ||
+      reportMakerData.items.some((it) => it.checked || Boolean(it.note?.trim()) || it.images.length > 0),
+    [reportMakerData],
+  );
+  const shouldWarnBeforeLeave =
+    ((step === "setup" || step === "inspection" || step === "report") && hasProgressData(data)) ||
+    (step === "report-maker" && hasReportMakerProgress);
+
+  useEffect(() => {
+    if (!SECTIONS.some((s) => s.id === reportMakerSectionFocusId)) {
+      setReportMakerSectionFocusId(SECTIONS[0]?.id ?? "");
+    }
+  }, [reportMakerSectionFocusId]);
 
   const activeSections = useMemo(() => getActiveSections(data), [data.skippedQuestionIds]);
   const totalScoreInfo = useMemo(() => calculateGlobalMetrics(data), [data.scores, data.skippedQuestionIds]);
@@ -394,16 +436,6 @@ export default function App() {
     setInspectionStepIndex(0);
     setExportMsg(null);
     setStep("setup");
-  };
-
-  /** من الشاشة الرئيسية عند وجود مسودة: يمسح المسودة ويبقى في الرئيسية حتى يختار المستخدم النموذج. */
-  const clearDraftStayOnHome = () => {
-    setData(createEmptyInspectionData());
-    localStorage.removeItem(DRAFT_STORAGE_KEY);
-    setSetupWizardStep(0);
-    setInspectionStepIndex(0);
-    setExportMsg(null);
-    setStep("home");
   };
 
   const deleteFromHistory = (id: string) => {
@@ -682,6 +714,10 @@ export default function App() {
 
   const canGoBackFromHeader = !showIntro && step !== "home";
   const goBackFromHeader = () => {
+    if (shouldWarnBeforeLeave) {
+      const ok = window.confirm("لديك إدخالات غير مكتملة. هل تريد المتابعة؟ سيتم حفظ المسودة على هذا الجهاز.");
+      if (!ok) return;
+    }
     if (step === "setup") {
       if (setupWizardStep > 0) {
         setSetupWizardStep((s) => s - 1);
@@ -725,25 +761,35 @@ export default function App() {
     setStep("home");
   };
 
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!shouldWarnBeforeLeave) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [shouldWarnBeforeLeave]);
+
   return (
     <div className="min-h-[100dvh] bg-zinc-50 text-zinc-900 overflow-x-hidden print:bg-white" dir="rtl">
       {!showIntro && step !== "presentation" && (
-        <header className="sticky top-0 z-50 border-b border-zinc-200/70 bg-white/95 shadow-[0_1px_0_rgba(0,0,0,0.03)] backdrop-blur-md print:hidden">
-          <div className="mx-auto w-full max-w-2xl px-3 pt-2.5 sm:max-w-4xl sm:px-6 sm:pt-3 lg:max-w-6xl lg:px-8">
-            <div className="flex items-start justify-between gap-2 sm:items-center">
-              <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-white shadow-sm sm:h-9 sm:w-9">
-                  <ClipboardCheck className="h-4 w-4 sm:h-[1.05rem] sm:w-[1.05rem]" aria-hidden />
+        <header className="sticky top-0 z-50 border-b border-zinc-200/80 bg-white/95 shadow-[0_1px_0_rgba(0,0,0,0.04)] backdrop-blur-md print:hidden">
+          <div className="mx-auto w-full max-w-2xl px-4 py-3.5 sm:max-w-4xl sm:px-6 sm:py-4 lg:max-w-6xl lg:px-8">
+            <div className="flex items-center justify-between gap-3 sm:gap-4">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-white shadow-sm ring-1 ring-zinc-900/20 sm:h-10 sm:w-10">
+                  <ClipboardCheck className="h-[1.05rem] w-[1.05rem] sm:h-[1.15rem] sm:w-[1.15rem]" aria-hidden />
                 </div>
-                <div className="min-w-0 py-0.5">
-                  <h1 className="truncate text-[13px] font-bold leading-tight text-zinc-900 sm:text-sm">{headerTitle}</h1>
+                <div className="min-w-0">
+                  <h1 className="truncate text-sm font-bold leading-snug tracking-tight text-zinc-900 sm:text-[15px]">{headerTitle}</h1>
                   {headerSubtitle ? (
-                    <p className="mt-0.5 truncate text-[11px] font-medium text-zinc-500">{headerSubtitle}</p>
+                    <p className="mt-0.5 truncate text-[11px] font-medium leading-normal text-zinc-500">{headerSubtitle}</p>
                   ) : null}
                 </div>
               </div>
 
-              <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center sm:gap-1.5">
+              <div className="flex shrink-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-2">
                 {(step === "inspection" || step === "report") && (
                   <div
                     className="flex rounded-xl bg-zinc-100/90 p-0.5 ring-1 ring-zinc-200/80"
@@ -783,29 +829,44 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="flex items-center gap-1">
-                  {(step === "home" || step === "report-maker") && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        historyReturnStepRef.current = step;
-                        setStep("history");
-                        window.scrollTo(0, 0);
-                      }}
-                      className="flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-800 transition-colors hover:bg-zinc-100 active:bg-zinc-100/90"
-                    >
-                      <History className="h-3.5 w-3.5" aria-hidden />
-                      السجل
-                    </button>
+                <div className="flex items-center justify-end gap-1.5 sm:gap-2">
+                  {step === "report-maker" && (
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHomeMsg(null);
+                          setStep("home");
+                          window.scrollTo(0, 0);
+                        }}
+                        className="inline-flex min-h-[2.5rem] items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-semibold text-zinc-800 shadow-sm transition-colors hover:bg-zinc-50 sm:text-xs"
+                      >
+                        <LayoutGrid className="h-3.5 w-3.5 shrink-0 text-zinc-600" aria-hidden />
+                        الرئيسية
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          historyReturnStepRef.current = "report-maker";
+                          setStep("history");
+                          window.scrollTo(0, 0);
+                        }}
+                        className="inline-flex min-h-[2.5rem] items-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-semibold text-zinc-800 transition-colors hover:bg-zinc-100 sm:text-xs"
+                      >
+                        <History className="h-3.5 w-3.5 shrink-0 text-zinc-600" aria-hidden />
+                        السجل
+                      </button>
+                    </div>
                   )}
                   {canGoBackFromHeader && (
                     <button
                       type="button"
                       onClick={goBackFromHeader}
-                      className="rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 active:bg-zinc-100"
+                      className="inline-flex min-h-[2.5rem] items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-semibold text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 active:bg-zinc-100 sm:text-xs"
                       aria-label="رجوع"
                     >
                       <ChevronRight className="h-4 w-4" aria-hidden />
+                      رجوع
                     </button>
                   )}
                   {step !== "home" && (
@@ -895,7 +956,66 @@ export default function App() {
                 </div>
               </div>
             </div>
-            <div className="h-2 sm:h-2.5" aria-hidden />
+            {step === "home" ? (
+              <nav
+                className="mt-3.5 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-3.5 sm:mt-4 sm:gap-2.5 sm:pt-4"
+                aria-label="تنقل سريع"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (hasDraftToResume) {
+                      if (!window.confirm("سيتم استبدال المسودة الحالية بجولة جديدة. المتابعة؟")) return;
+                    }
+                    setHomeMsg(null);
+                    startNewTour();
+                    window.scrollTo(0, 0);
+                  }}
+                  className="inline-flex min-h-[2.5rem] items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-semibold text-zinc-800 shadow-sm transition-colors hover:bg-zinc-50 sm:text-xs"
+                >
+                  <FilePlus2 className="h-3.5 w-3.5 shrink-0 text-zinc-600" aria-hidden />
+                  جديد
+                </button>
+                {hasDraftToResume ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHomeMsg(null);
+                      setStep("setup");
+                      window.scrollTo(0, 0);
+                    }}
+                    className="inline-flex min-h-[2.5rem] items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-semibold text-zinc-800 shadow-sm transition-colors hover:bg-zinc-50 sm:text-xs"
+                  >
+                    <PlayCircle className="h-3.5 w-3.5 shrink-0 text-zinc-600" aria-hidden />
+                    استئناف
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHomeMsg(null);
+                    setStep("report-maker");
+                    window.scrollTo(0, 0);
+                  }}
+                  className="inline-flex min-h-[2.5rem] items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[11px] font-semibold text-zinc-800 shadow-sm transition-colors hover:bg-zinc-50 sm:text-xs"
+                >
+                  <ListChecks className="h-3.5 w-3.5 shrink-0 text-zinc-600" aria-hidden />
+                  تقرير
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    historyReturnStepRef.current = "home";
+                    setStep("history");
+                    window.scrollTo(0, 0);
+                  }}
+                  className="inline-flex min-h-[2.5rem] items-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-semibold text-zinc-800 transition-colors hover:bg-zinc-100 sm:text-xs"
+                >
+                  <History className="h-3.5 w-3.5 shrink-0 text-zinc-600" aria-hidden />
+                  السجل
+                </button>
+              </nav>
+            ) : null}
           </div>
         </header>
       )}
@@ -1005,100 +1125,92 @@ export default function App() {
               className="space-y-4"
             >
               <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
-                <h2 className="text-base font-semibold">{hasDraftToResume ? "متابعة أو بدء جديد" : "اختر نموذج الجولة"}</h2>
-                <p className="mt-1 text-[12px] text-zinc-500">
-                  {hasDraftToResume
-                    ? "استأنف المسودة، أو اضغط «جولة جديدة» لتظهر قائمة النماذج."
-                    : "اختر النموذج المتاح، وبقية النماذج قريبًا."}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setHomeMsg(null);
-                    setStep("report-maker");
-                    window.scrollTo(0, 0);
-                  }}
-                  className="mt-4 flex w-full min-h-[3.25rem] items-center justify-between gap-3 rounded-xl border border-violet-200 bg-gradient-to-l from-violet-50 to-white px-4 py-3 text-right shadow-sm ring-1 ring-violet-100 transition hover:border-violet-300 hover:from-violet-50/90"
-                >
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="flex items-center gap-2 text-sm font-bold text-violet-950">
-                      <ListChecks className="h-4 w-4 shrink-0 text-violet-700" aria-hidden />
-                      صانع التقرير
+                <div className="mt-1 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (hasDraftToResume) {
+                        if (!window.confirm("سيتم استبدال المسودة الحالية بجولة جديدة. المتابعة؟")) return;
+                      }
+                      setHomeMsg(null);
+                      startNewTour();
+                      window.scrollTo(0, 0);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-xl border border-sky-200 bg-sky-50/45 px-3 py-3 text-right shadow-sm ring-1 ring-sky-100 transition hover:bg-sky-50"
+                  >
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-sky-200/80">
+                      <FilePlus2 className="h-4 w-4 text-sky-700" aria-hidden />
                     </span>
-                    <span className="text-[11px] font-medium leading-relaxed text-violet-800/85">
-                      قائمة تحقق، تقييم تلقائي، رفع صور، وتصدير PowerPoint
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-zinc-900">جولة جديدة</span>
+                      <span className="mt-0.5 block text-[11px] font-medium leading-relaxed text-zinc-600">
+                        بدء جولة تفتيش من معالج الإعداد
+                      </span>
                     </span>
-                  </span>
-                  <ChevronLeft className="h-4 w-4 shrink-0 text-violet-500" aria-hidden />
-                </button>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!hasDraftToResume) {
+                        setHomeMsg("لا توجد مسودة غير مكتملة على هذا الجهاز.");
+                        return;
+                      }
+                      setHomeMsg(null);
+                      setStep("setup");
+                      window.scrollTo(0, 0);
+                    }}
+                    className={`flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-right shadow-sm ring-1 transition ${
+                      hasDraftToResume
+                        ? "border-emerald-200 bg-emerald-50/45 ring-emerald-100 hover:bg-emerald-50"
+                        : "border-zinc-200 bg-zinc-50/70 ring-zinc-100"
+                    }`}
+                    aria-disabled={!hasDraftToResume}
+                  >
+                    <span
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ${
+                        hasDraftToResume ? "ring-emerald-200/80" : "ring-zinc-200/80"
+                      }`}
+                    >
+                      <PlayCircle className={`h-4 w-4 ${hasDraftToResume ? "text-emerald-700" : "text-zinc-400"}`} aria-hidden />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className={`block text-sm font-semibold ${hasDraftToResume ? "text-zinc-900" : "text-zinc-500"}`}>استئناف الجولة</span>
+                      <span className={`mt-0.5 block text-[11px] font-medium leading-relaxed ${hasDraftToResume ? "text-zinc-600" : "text-zinc-400"}`}>
+                        {hasDraftToResume ? "متابعة آخر جولة غير مكتملة على هذا الجهاز" : "لا توجد مسودة محفوظة حالياً"}
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                        setHomeMsg(null);
+                        setStep("report-maker");
+                        window.scrollTo(0, 0);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-xl border border-violet-200 bg-violet-50/45 px-3 py-3 text-right shadow-sm ring-1 ring-violet-100 transition hover:bg-violet-50"
+                  >
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-violet-200/80">
+                      <ListChecks className="h-4 w-4 text-violet-700" aria-hidden />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-zinc-900">صانع التقرير</span>
+                      <span className="mt-0.5 block text-[11px] font-medium leading-relaxed text-zinc-600">
+                        قائمة تحقق، تقييم تلقائي، رفع صور، وتصدير PowerPoint
+                      </span>
+                    </span>
+                  </button>
+                </div>
                 {hasDraftToResume ? (
-                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3.5 sm:p-4">
-                    <p className="text-sm font-semibold text-amber-950">توجد جولة غير مكتملة على هذا الجهاز</p>
-                    <p className="mt-1 text-[12px] leading-relaxed text-amber-900/90">استأنف من حيث توقفت، أو ابدأ جولة جديدة (تُستبدل المسودة الحالية).</p>
-                    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-stretch">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setHomeMsg(null);
-                          setStep("setup");
-                        }}
-                        className="min-h-[2.75rem] flex-1 rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-zinc-800"
-                      >
-                        استئناف
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setHomeMsg(null);
-                          clearDraftStayOnHome();
-                        }}
-                        className="min-h-[2.75rem] flex-1 rounded-xl border-2 border-zinc-900/15 bg-white px-4 py-2.5 text-sm font-bold text-zinc-900 shadow-sm transition hover:bg-zinc-50"
-                      >
-                        جولة جديدة
-                      </button>
-                    </div>
-                    <p className="mt-3 border-t border-amber-200/80 pt-3 text-center">
-                      <button
-                        type="button"
-                        disabled={exportBusy !== null}
-                        onClick={() => openPptReviewForExport("email")}
-                        className="text-[12px] font-medium text-amber-900 underline decoration-amber-700/40 underline-offset-2 hover:decoration-amber-800 disabled:opacity-50"
-                      >
-                        {exportBusy === "pptx" ? "جارٍ التنزيل…" : "تنزيل وإرسال نسخة PPT من المسودة"}
-                      </button>
-                    </p>
-                  </div>
-                ) : null}
-                {!hasDraftToResume ? (
-                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {[
-                      { id: "preventive", label: "الطب الوقائي", action: "open" as const },
-                      { id: "env-health", label: "صحة البيئة", action: "soon" as const },
-                      { id: "infectious", label: "الامراض المعدية", action: "soon" as const },
-                      { id: "occupational-health", label: "الصحة المهنية", action: "soon" as const },
-                    ].map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => {
-                          if (item.action === "open") {
-                            setHomeMsg(null);
-                            setStep("setup");
-                            return;
-                          }
-                          setHomeMsg(`${item.label}: قريبا`);
-                        }}
-                        className="flex min-h-[3rem] items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-right text-sm font-medium text-zinc-800 hover:bg-zinc-100"
-                      >
-                        <span>{item.label}</span>
-                        {item.action === "open" ? (
-                          <span className="rounded-md bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">متاح</span>
-                        ) : (
-                          <span className="rounded-md bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold text-zinc-700">قريبا</span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
+                  <p className="mt-3 border-t border-zinc-100 pt-3 text-center">
+                    <button
+                      type="button"
+                      disabled={exportBusy !== null}
+                      onClick={() => openPptReviewForExport("email")}
+                      className="text-[12px] font-medium text-zinc-600 underline decoration-zinc-400/50 underline-offset-2 hover:text-zinc-900 disabled:opacity-50"
+                    >
+                      {exportBusy === "pptx" ? "جارٍ التنزيل…" : "تنزيل أو إرسال PPT من المسودة"}
+                    </button>
+                  </p>
                 ) : null}
               </section>
               {homeMsg && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{homeMsg}</p>}
@@ -1159,6 +1271,7 @@ export default function App() {
                             setData(
                               normalizeInspectionData({
                                 id: t.id,
+                                coverTitle: typeof t.coverTitle === "string" ? t.coverTitle : "",
                                 inspectors: t.inspectors ?? [],
                                 hospital: t.hospital ?? "",
                                 date: t.date ?? "",
@@ -1208,10 +1321,10 @@ export default function App() {
                   <div className="flex shrink-0 items-start justify-between gap-3 border-b border-zinc-100 px-3 py-3 sm:px-4">
                     <div>
                       <h2 id="rm-ppt-review-title" className="text-base font-bold text-zinc-900">
-                        مراجعة التقرير قبل التصدير
+                        مراجعة شريحة بشريحة
                       </h2>
                       <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
-                        معاينة شرائح PowerPoint — انتقل بين الشرائح وعدّل المحتوى أسفل كل معاينة، ثم أكّد التنزيل.
+                        سابق/تالي أو القائمة — تعديل أسفل المعاينة، ثم تأكيد التنزيل.
                       </p>
                       <p className="mt-2 text-[11px] font-semibold tabular-nums text-emerald-800">
                         التقييم التلقائي:{" "}
@@ -1259,297 +1372,421 @@ export default function App() {
                 </div>
               ) : (
                 <>
-              <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
-                <h2 className="text-sm font-semibold text-zinc-900">بيانات التقرير</h2>
-                <p className="mt-1 text-[11px] text-zinc-500">
-                  غلاف «تقرير الجولة» يستخدم خلفية التجمع مع خمسة أسطر (منشأة، تاريخ، امتثال، فريق). حقل العنوان أدناه
-                  لتسمية الملف وخصائص المستند فقط.
-                </p>
-                <div className="mt-4 space-y-3">
-                  <label className="block text-[11px] font-semibold text-zinc-600">تسمية الملف / عنوان المستند</label>
-                  <input
-                    type="text"
-                    value={reportMakerData.title}
-                    onChange={(e) => setReportMakerData((p) => ({ ...p, title: e.target.value }))}
-                    className="w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-3 py-2.5 text-sm outline-none focus:border-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
-                    placeholder="مثال: زيارة تفتيشية — للأرشفة"
-                  />
-                  <label className="block text-[11px] font-semibold text-zinc-600">المنشأة (اختياري)</label>
-                  <select
-                    value={reportMakerData.facility}
-                    onChange={(e) => setReportMakerData((p) => ({ ...p, facility: e.target.value }))}
-                    className="w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-3 py-2.5 text-sm outline-none focus:border-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
-                  >
-                    <option value="">— اختر من القائمة —</option>
-                    {HOSPITALS.map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-zinc-600" htmlFor="rm-inspectors-trigger">
-                      أسماء المكلفين (اختياري)
-                    </label>
-                    <p className="mb-2 mt-0.5 text-[10px] text-zinc-500">قائمة منسدلة — اختر أكثر من اسم؛ يُدرَجون في غلاف التقرير والتصدير.</p>
-                    <div className="relative" ref={reportMakerInspectorsRef}>
-                      <button
-                        id="rm-inspectors-trigger"
-                        type="button"
-                        aria-expanded={reportMakerInspectorsOpen}
-                        aria-haspopup="listbox"
-                        onClick={() => setReportMakerInspectorsOpen((o) => !o)}
-                        className="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-zinc-50/50 px-3 py-2.5 text-start text-sm outline-none transition-colors hover:bg-white focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
-                      >
-                        <span className={`min-w-0 flex-1 truncate ${reportMakerData.inspectors.length ? "text-zinc-900" : "text-zinc-400"}`}>
-                          {reportMakerData.inspectors.length
-                            ? reportMakerData.inspectors.join("، ")
-                            : "— اختر من القائمة —"}
-                        </span>
-                        <ChevronDown
-                          className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${reportMakerInspectorsOpen ? "rotate-180" : ""}`}
-                          aria-hidden
-                        />
-                      </button>
-                      {reportMakerInspectorsOpen ? (
-                        <div
-                          className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-zinc-200 bg-white py-1 shadow-lg"
-                          role="listbox"
-                          aria-multiselectable="true"
-                        >
-                          {INSPECTORS.map((inspector) => {
-                            const on = reportMakerData.inspectors.includes(inspector.name);
-                            return (
-                              <label
-                                key={inspector.id}
-                                className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-sm text-zinc-800 hover:bg-zinc-50"
-                              >
-                                <input
-                                  type="checkbox"
-                                  className="h-4 w-4 shrink-0 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900/20"
-                                  checked={on}
-                                  onChange={() =>
-                                    setReportMakerData((prev) => ({
-                                      ...prev,
-                                      inspectors: on
-                                        ? prev.inspectors.filter((n) => n !== inspector.name)
-                                        : [...prev.inspectors, inspector.name],
-                                    }))
-                                  }
-                                />
-                                <span className="min-w-0 flex-1">{inspector.name}</span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div>
-                    <span className="block text-[11px] font-semibold text-zinc-600">التاريخ</span>
-                    <p className="mt-0.5 text-[10px] text-zinc-500">يوم / شهر / سنة (قوائم منسدلة)</p>
-                    <div className="mt-2 grid grid-cols-3 gap-2" dir="rtl">
-                      {(() => {
-                        const { y, m, d } = parseReportMakerIsoDate(reportMakerData.date);
-                        const dim = daysInMonthCount(y, m);
-                        const setParts = (next: { y?: number; m?: number; d?: number }) => {
-                          setReportMakerData((p) => {
-                            const cur = parseReportMakerIsoDate(p.date);
-                            let yy = next.y ?? cur.y;
-                            let mm = next.m ?? cur.m;
-                            let dd = next.d ?? cur.d;
-                            const maxD = daysInMonthCount(yy, mm);
-                            if (dd > maxD) dd = maxD;
-                            const iso = `${String(yy).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
-                            return { ...p, date: iso };
-                          });
-                        };
-                        const years = Array.from({ length: 18 }, (_, i) => 2018 + i);
-                        return (
-                          <>
-                            <div>
-                              <label className="mb-1 block text-[10px] font-medium text-zinc-500">السنة</label>
-                              <select
-                                value={y}
-                                onChange={(e) => setParts({ y: Number(e.target.value) })}
-                                className="w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-2 py-2 text-sm outline-none focus:border-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
-                              >
-                                {years.map((yy) => (
-                                  <option key={yy} value={yy}>
-                                    {yy}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="mb-1 block text-[10px] font-medium text-zinc-500">الشهر</label>
-                              <select
-                                value={m}
-                                onChange={(e) => setParts({ m: Number(e.target.value) })}
-                                className="w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-2 py-2 text-sm outline-none focus:border-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
-                              >
-                                {Array.from({ length: 12 }, (_, i) => i + 1).map((mm) => (
-                                  <option key={mm} value={mm}>
-                                    {mm}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="mb-1 block text-[10px] font-medium text-zinc-500">اليوم</label>
-                              <select
-                                value={d}
-                                onChange={(e) => setParts({ d: Number(e.target.value) })}
-                                className="w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-2 py-2 text-sm outline-none focus:border-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
-                              >
-                                {Array.from({ length: dim }, (_, i) => i + 1).map((dd) => (
-                                  <option key={dd} value={dd}>
-                                    {dd}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section className="rounded-xl border border-zinc-200 bg-zinc-50/40 p-4 sm:p-5">
-                <h2 className="text-sm font-semibold text-zinc-900">معاينة غلاف التقرير</h2>
-                <p className="mt-1 text-[11px] text-zinc-500">
-                  هنا تظهر <strong>الشريحة الأولى</strong> فقط (16:9). باقي الشرائح — مقدّمة كل قسم، جداول البنود، الملاحظات، صور البنود والمرفقات، الختام — تظهر في شاشة{" "}
-                  <strong>مراجعة وتصدير PowerPoint</strong> بجانب القائمة (الزر أسفل الصفحة). يمكنك الانتقال مباشرة من القائمة التالية.
-                </p>
-                <div className="mx-auto mt-3 max-w-3xl">
-                  <ReportMakerTourCoverHero data={reportMakerData} />
-                </div>
-                <div className="mx-auto mt-4 max-w-3xl">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">ترتيب الشرائح في الملف</p>
-                  <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-zinc-200/80 bg-white/80 p-2 sm:max-h-none">
-                    {reportMakerPptSlidePlan.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => {
-                          setExportMsg(null);
-                          setReportMakerPptInitialSlideId(s.id);
-                          setReportMakerPptReviewOpen(true);
-                        }}
-                        className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-start text-[10px] font-medium text-zinc-800 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 sm:text-[11px]"
-                      >
-                        <span className="tabular-nums text-zinc-400">{s.n}.</span> {s.labelAr}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </section>
-
-              <section className="rounded-xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50/90 to-white p-4 sm:p-5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-sm font-bold text-emerald-950">التقييم التلقائي</h2>
-                    <p className="mt-0.5 text-[11px] text-emerald-900/80">يُحتسب من جميع بنود الفحص: ✓ = مكتمل.</p>
-                  </div>
-                  <div className="flex items-baseline gap-1.5 rounded-2xl border border-emerald-200 bg-white px-4 py-3 shadow-sm">
-                    <span className="text-3xl font-bold tabular-nums text-emerald-800">{reportMakerScore.percentage}</span>
-                    <span className="text-sm font-semibold text-emerald-700">٪</span>
-                  </div>
-                </div>
-                <p className="mt-3 text-center text-sm font-semibold tabular-nums text-emerald-900">
-                  {reportMakerScore.total === 0 ? (
-                    <span className="text-zinc-500">لا توجد بنود في القائمة</span>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="mb-0.5 inline h-4 w-4 align-text-bottom text-emerald-600" aria-hidden />
-                      {` ${reportMakerScore.checked} من ${reportMakerScore.total} بند مكتمل`}
-                    </>
-                  )}
-                </p>
-              </section>
-
-              <ReportMakerChecklistSteps
-                data={reportMakerData}
-                setData={setReportMakerData}
-                onItemImageUpload={handleReportMakerItemImageUpload}
-                onRemoveItemImage={removeReportMakerItemImage}
-              />
-
-              <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
-                <h2 className="text-sm font-semibold text-zinc-900">ملاحظات عامة</h2>
-                <textarea
-                  value={reportMakerData.notes}
-                  onChange={(e) => setReportMakerData((p) => ({ ...p, notes: e.target.value }))}
-                  rows={4}
-                  placeholder="ملاحظات تظهر في التقرير وملف العرض…"
-                  className="mt-3 w-full resize-y rounded-xl border border-zinc-200 bg-zinc-50/50 px-3 py-2.5 text-sm outline-none focus:border-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
-                />
-              </section>
-
-              <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
-                <div className="flex items-center justify-between gap-2">
-                  <h2 className="text-sm font-semibold text-zinc-900">صور مرفقة</h2>
-                  <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-100">
-                    <ImagePlus className="h-3.5 w-3.5" aria-hidden />
-                    رفع صور
-                    <input type="file" multiple accept="image/*" className="hidden" onChange={handleReportMakerImageUpload} />
-                  </label>
-                </div>
-                {reportMakerData.images.length === 0 ? (
-                  <p className="mt-3 text-center text-[12px] text-zinc-500">لا توجد صور بعد — تُدرج كل صورة في شريحة منفصلة داخل PowerPoint.</p>
-                ) : (
-                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {reportMakerData.images.map((img, i) => (
-                      <div key={`${i}-${img.slice(0, 32)}`} className="relative aspect-video overflow-hidden rounded-lg border border-zinc-100">
-                        <img src={img} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                  <div className="rounded-xl border border-zinc-200 bg-white p-3 sm:p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[11px] font-semibold text-zinc-500">
+                        الخطوة {reportMakerWizardStep + 1} من {REPORT_MAKER_WIZARD_STEPS.length}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xs font-bold text-zinc-900">
+                          {REPORT_MAKER_WIZARD_STEPS[reportMakerWizardStep]?.label}
+                        </p>
                         <button
                           type="button"
-                          onClick={() =>
-                            setReportMakerData((p) => ({
-                              ...p,
-                              images: p.images.filter((_, idx) => idx !== i),
-                            }))
-                          }
-                          className="absolute end-1 top-1 rounded bg-red-600 p-0.5 text-white shadow-sm"
-                          aria-label="حذف الصورة"
+                          disabled={exportBusy !== null}
+                          onClick={() => {
+                            if (!window.confirm("مسح كل محتوى صانع التقرير وإعادة البدء؟")) return;
+                            setReportMakerData(createEmptyReportMaker());
+                            setExportMsg(null);
+                            setReportMakerWizardStep(0);
+                          }}
+                          className="text-[10px] font-semibold text-zinc-500 underline decoration-zinc-300 underline-offset-2 hover:text-zinc-800 disabled:opacity-50"
                         >
-                          <XCircle className="h-3.5 w-3.5" />
+                          مسح الكل
                         </button>
                       </div>
-                    ))}
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-zinc-500">
+                      {REPORT_MAKER_WIZARD_STEPS[reportMakerWizardStep]?.hint}
+                    </p>
+                    <div
+                      className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                      role="tablist"
+                      aria-label="خطوات صانع التقرير"
+                    >
+                      {REPORT_MAKER_WIZARD_STEPS.map((s, i) => {
+                        const on = i === reportMakerWizardStep;
+                        const done = i < reportMakerWizardStep;
+                        return (
+                          <button
+                            key={s.label}
+                            type="button"
+                            role="tab"
+                            aria-selected={on}
+                            onClick={() => {
+                              if (i > 0 && !hasReportMakerFacility) return;
+                              setReportMakerWizardStep(i);
+                            }}
+                            disabled={i > 0 && !hasReportMakerFacility}
+                            className={`min-h-9 min-w-0 flex-1 rounded-lg px-1.5 py-1.5 text-center text-[10px] font-semibold leading-tight transition-colors sm:px-2 sm:text-[11px] ${
+                              on
+                                ? "bg-zinc-900 text-white shadow-sm"
+                                : done
+                                  ? "bg-zinc-100 text-zinc-800 hover:bg-zinc-200"
+                                  : "border border-zinc-200 bg-zinc-50/80 text-zinc-500 hover:bg-zinc-100"
+                            }`}
+                          >
+                            {s.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                )}
-              </section>
 
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
-                <button
-                  type="button"
-                  disabled={exportBusy !== null}
-                  onClick={() => {
-                    setExportMsg(null);
-                    setReportMakerPptInitialSlideId(undefined);
-                    setReportMakerPptReviewOpen(true);
-                  }}
-                  className="flex min-h-[2.75rem] items-center justify-center gap-2 rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-zinc-800 disabled:opacity-50"
-                >
-                  <Presentation className="h-4 w-4" aria-hidden />
-                  مراجعة وتصدير PowerPoint
-                </button>
-                <button
-                  type="button"
-                  disabled={exportBusy !== null}
-                  onClick={() => {
-                    if (!window.confirm("مسح كل محتوى صانع التقرير وإعادة البدء؟")) return;
-                    setReportMakerData(createEmptyReportMaker());
-                    setExportMsg(null);
-                  }}
-                  className="min-h-[2.75rem] rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                >
-                  مسح وبدء جديد
-                </button>
-              </div>
+                  {reportMakerWizardStep === 0 ? (
+                    <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-2 lg:items-start" dir="rtl">
+                      <section className="order-2 min-w-0 rounded-xl border border-zinc-200 bg-white p-4 sm:p-5 lg:order-none">
+                        <h2 className="text-sm font-semibold text-zinc-900">بيانات التقرير</h2>
+                        <p className="mt-1 text-[11px] text-zinc-500">
+                          اسم ملف التقرير يُحدَّد تلقائيًا. المنشأة والفريق يظهران في غلاف الشريحة.{" "}
+                          <span className="font-medium text-zinc-600">التاريخ: يوم اليوم تلقائياً.</span>
+                        </p>
+                        <div className="mt-4 space-y-3">
+                          <label className="block text-[11px] font-semibold text-zinc-600">المنشأة</label>
+                          <select
+                            value={reportMakerData.facility}
+                            onChange={(e) => setReportMakerData((p) => ({ ...p, facility: e.target.value }))}
+                            className="w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-3 py-2.5 text-sm outline-none focus:border-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
+                          >
+                            <option value="">— اختر المنشأة —</option>
+                            {HOSPITALS.map((name) => (
+                              <option key={name} value={name}>
+                                {name}
+                              </option>
+                            ))}
+                          </select>
+                          <div>
+                            <label className="block text-[11px] font-semibold text-zinc-600" htmlFor="rm-inspectors-trigger">
+                              أسماء المكلفين (اختياري)
+                            </label>
+                            <p className="mb-2 mt-0.5 text-[10px] text-zinc-500">يمكن اختيار أكثر من اسم.</p>
+                            <div className="relative" ref={reportMakerInspectorsRef}>
+                              <button
+                                id="rm-inspectors-trigger"
+                                type="button"
+                                aria-expanded={reportMakerInspectorsOpen}
+                                aria-haspopup="listbox"
+                                onClick={() => setReportMakerInspectorsOpen((o) => !o)}
+                                className="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-zinc-50/50 px-3 py-2.5 text-start text-sm outline-none transition-colors hover:bg-white focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+                              >
+                                <span
+                                  className={`min-w-0 flex-1 truncate ${reportMakerData.inspectors.length ? "text-zinc-900" : "text-zinc-400"}`}
+                                >
+                                  {reportMakerData.inspectors.length
+                                    ? reportMakerData.inspectors.join("، ")
+                                    : "— اختر من القائمة —"}
+                                </span>
+                                <ChevronDown
+                                  className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${reportMakerInspectorsOpen ? "rotate-180" : ""}`}
+                                  aria-hidden
+                                />
+                              </button>
+                              {reportMakerInspectorsOpen ? (
+                                <div
+                                  className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-zinc-200 bg-white py-1 shadow-lg"
+                                  role="listbox"
+                                  aria-multiselectable="true"
+                                >
+                                  {INSPECTORS.map((inspector) => {
+                                    const on = reportMakerData.inspectors.includes(inspector.name);
+                                    return (
+                                      <label
+                                        key={inspector.id}
+                                        className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-sm text-zinc-800 hover:bg-zinc-50"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          className="h-4 w-4 shrink-0 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900/20"
+                                          checked={on}
+                                          onChange={() =>
+                                            setReportMakerData((prev) => ({
+                                              ...prev,
+                                              inspectors: on
+                                                ? prev.inspectors.filter((n) => n !== inspector.name)
+                                                : [...prev.inspectors, inspector.name],
+                                            }))
+                                          }
+                                        />
+                                        <span className="min-w-0 flex-1">{inspector.name}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      </section>
+                      <section
+                        className="order-1 min-w-0 overflow-hidden rounded-xl border border-emerald-200/70 bg-gradient-to-b from-emerald-50/80 to-zinc-50/50 p-3 sm:p-4 lg:order-none"
+                        aria-label="معاينة شريحة الغلاف"
+                      >
+                        <p className="text-xs font-bold text-emerald-900">شريحة الغلاف (معاينة مباشرة)</p>
+                        <p className="mt-0.5 text-[10px] text-emerald-800/80">16:9 — تتغيّر مع البيانات يميناً</p>
+                        <div className="mx-auto mt-3 w-full max-w-3xl">
+                          <ReportMakerTourCoverHero data={reportMakerData} />
+                        </div>
+                      </section>
+                    </div>
+                  ) : null}
+
+                  {reportMakerWizardStep === 1 ? (
+                    <section className="rounded-xl border border-zinc-200 bg-zinc-50/40 p-4 sm:p-5">
+                      <h2 className="text-sm font-semibold text-zinc-900">معاينة غلاف التقرير</h2>
+                      <p className="mt-1 text-[11px] text-zinc-500">
+                        الشريحة الأولى (16:9) فقط. بقية الشرائح تُراجع شريحة بشريحة عند التصدير.
+                      </p>
+                      <div className="mx-auto mt-3 max-w-3xl">
+                        <ReportMakerTourCoverHero data={reportMakerData} />
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {reportMakerWizardStep === 2 ? (
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50/90 to-white px-4 py-3">
+                        <p className="text-[11px] font-bold text-emerald-950">التقييم التلقائي (✓ = مكتمل)</p>
+                        <p className="text-sm font-bold tabular-nums text-emerald-800">
+                          {reportMakerScore.total === 0 ? (
+                            "—"
+                          ) : (
+                            <>
+                              {reportMakerScore.percentage}٪ — {reportMakerScore.checked}/{reportMakerScore.total}
+                            </>
+                          )}
+                        </p>
+                      </div>
+                      {reportMakerSectionStage === "pick" ? (
+                        <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
+                          <h2 className="text-sm font-semibold text-zinc-900">اختر القسم</h2>
+                          <p className="mt-1 text-[11px] text-zinc-500">قسم واحد فقط كل مرة. اختر ثم افتح شريحته للتحديث.</p>
+                          <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50/60 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const idx = Math.max(0, SECTIONS.findIndex((s) => s.id === activeReportMakerSectionId));
+                                  const prev = Math.max(0, idx - 1);
+                                  setReportMakerSectionFocusId(SECTIONS[prev]?.id ?? activeReportMakerSectionId);
+                                }}
+                                disabled={SECTIONS.findIndex((s) => s.id === activeReportMakerSectionId) <= 0}
+                                className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
+                              >
+                                السابق
+                              </button>
+                              <span className="text-[11px] font-semibold text-zinc-500 tabular-nums">
+                                {Math.max(1, SECTIONS.findIndex((s) => s.id === activeReportMakerSectionId) + 1)} / {SECTIONS.length}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const idx = Math.max(0, SECTIONS.findIndex((s) => s.id === activeReportMakerSectionId));
+                                  const next = Math.min(SECTIONS.length - 1, idx + 1);
+                                  setReportMakerSectionFocusId(SECTIONS[next]?.id ?? activeReportMakerSectionId);
+                                }}
+                                disabled={SECTIONS.findIndex((s) => s.id === activeReportMakerSectionId) >= SECTIONS.length - 1}
+                                className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
+                              >
+                                التالي
+                              </button>
+                            </div>
+                            <div className="mt-2.5 rounded-xl border border-zinc-900 bg-zinc-900 px-3 py-3 text-white shadow-sm">
+                              <p className="text-xs font-bold" title={activeReportMakerSectionMeta?.title ?? "—"}>
+                                {activeReportMakerSectionMeta?.title ?? "—"}
+                              </p>
+                              <p className="mt-1 text-[11px] text-zinc-200 tabular-nums">
+                                {activeReportMakerSectionMeta?.checked ?? 0}/{activeReportMakerSectionMeta?.total ?? 0} •{" "}
+                                {activeReportMakerSectionMeta?.pct ?? 0}٪
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setReportMakerSectionStage("edit")}
+                              className="mt-2.5 inline-flex min-h-[2.5rem] w-full items-center justify-center rounded-xl bg-zinc-900 px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-zinc-800"
+                            >
+                              فتح شريحة هذا القسم
+                            </button>
+                          </div>
+                        </section>
+                      ) : (
+                        <section className="rounded-xl border border-zinc-200 bg-zinc-50/40 p-4 sm:p-5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h2 className="text-sm font-semibold text-zinc-900">تحديث القسم كشريحة مستقلة</h2>
+                            <button
+                              type="button"
+                              onClick={() => setReportMakerSectionStage("pick")}
+                              className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                            >
+                              تغيير القسم
+                            </button>
+                          </div>
+                          <p className="mt-1 text-[11px] text-zinc-500">
+                            تعمل الآن على:{" "}
+                            <span className="font-semibold text-zinc-700">
+                              {SECTIONS.find((s) => s.id === activeReportMakerSectionId)?.title ?? "—"}
+                            </span>
+                          </p>
+                          <div className="mx-auto mt-3 w-full max-w-3xl">
+                            <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-zinc-200 shadow-inner">
+                              <div className="absolute inset-0 bg-gradient-to-br from-[#0f3d8c] via-[#1d4ed8] to-[#0b1f3a]" />
+                              <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.2),transparent_42%),radial-gradient(circle_at_80%_78%,rgba(255,255,255,0.14),transparent_40%)]" />
+                              <div className="absolute start-3 top-3 rounded-md bg-white/10 px-2 py-1 text-[10px] font-semibold text-white/90 backdrop-blur-sm sm:start-4 sm:top-4">
+                                شريحة قسم
+                              </div>
+                              <div className="absolute end-3 top-3 rounded-md bg-white/10 px-2 py-1 text-[10px] font-semibold text-white/90 backdrop-blur-sm sm:end-4 sm:top-4">
+                                16:9
+                              </div>
+                              <div className="absolute inset-0 flex items-center justify-center p-3 sm:p-5">
+                                <div className="w-full max-w-[82%] rounded-2xl border border-white/20 bg-zinc-950/36 px-4 py-4 text-white shadow-2xl backdrop-blur-[2px] sm:max-w-[72%] sm:px-6 sm:py-5">
+                                  <p className="text-center text-[11px] font-semibold text-zinc-100/90 sm:text-xs">بنود الفحص</p>
+                                  <h3 className="mt-1 text-center text-[18px] font-extrabold leading-tight sm:text-[24px]">
+                                    {activeReportMakerSectionMeta?.title ?? "—"}
+                                  </h3>
+                                  <p className="mt-2 text-center text-[12px] font-semibold text-zinc-100 sm:text-sm">
+                                    نسبة الامتثال: {activeReportMakerSectionMeta?.pct ?? 0}٪
+                                  </p>
+                                  <p className="mt-1 text-center text-[11px] font-medium text-zinc-200/95 sm:text-xs">
+                                    البنود المكتملة: {activeReportMakerSectionMeta?.checked ?? 0}/{activeReportMakerSectionMeta?.total ?? 0}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="mt-3">
+                            <ReportMakerChecklistSteps
+                              data={reportMakerData}
+                              setData={setReportMakerData}
+                              onItemImageUpload={handleReportMakerItemImageUpload}
+                              onRemoveItemImage={removeReportMakerItemImage}
+                              onlySectionId={activeReportMakerSectionId}
+                            />
+                          </div>
+                        </section>
+                      )}
+                    </>
+                  ) : null}
+
+                  {reportMakerWizardStep === 3 ? (
+                    <>
+                      <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
+                        <h2 className="text-sm font-semibold text-zinc-900">ملاحظات عامة</h2>
+                        <textarea
+                          value={reportMakerData.notes}
+                          onChange={(e) => setReportMakerData((p) => ({ ...p, notes: e.target.value }))}
+                          rows={5}
+                          placeholder="ملاحظات تظهر في التقرير وملف العرض…"
+                          className="mt-3 w-full resize-y rounded-xl border border-zinc-200 bg-zinc-50/50 px-3 py-2.5 text-sm outline-none focus:border-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
+                        />
+                      </section>
+                      <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
+                        <div className="flex items-center justify-between gap-2">
+                          <h2 className="text-sm font-semibold text-zinc-900">صور مرفقة</h2>
+                          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-100">
+                            <ImagePlus className="h-3.5 w-3.5" aria-hidden />
+                            رفع صور
+                            <input
+                              type="file"
+                              multiple
+                              accept="image/*"
+                              className="hidden"
+                              onChange={handleReportMakerImageUpload}
+                            />
+                          </label>
+                        </div>
+                        {reportMakerData.images.length === 0 ? (
+                          <p className="mt-3 text-center text-[12px] text-zinc-500">
+                            لا توجد صور بعد — كل صورة تُستخرج كشريحة في PowerPoint.
+                          </p>
+                        ) : (
+                          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            {reportMakerData.images.map((img, i) => (
+                              <div
+                                key={`${i}-${img.slice(0, 32)}`}
+                                className="relative aspect-video overflow-hidden rounded-lg border border-zinc-100"
+                              >
+                                <img src={img} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setReportMakerData((p) => ({
+                                      ...p,
+                                      images: p.images.filter((_, idx) => idx !== i),
+                                    }))
+                                  }
+                                  className="absolute end-1 top-1 rounded bg-red-600 p-0.5 text-white shadow-sm"
+                                  aria-label="حذف الصورة"
+                                >
+                                  <XCircle className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                    </>
+                  ) : null}
+
+                  {reportMakerWizardStep === REPORT_MAKER_WIZARD_LAST ? (
+                    <section className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 sm:p-5">
+                      <h2 className="text-sm font-semibold text-zinc-900">جاهز للتصدير</h2>
+                      <p className="mt-1 text-[12px] text-zinc-600">
+                        معاينة الشرائح تتم <strong>واحدة تلو الأخرى</strong> — ثم يمكنك تنزيل PowerPoint.
+                      </p>
+                      <p className="mt-2 text-[11px] tabular-nums text-zinc-500">
+                        عدد الشرائح المخطط لها: {reportMakerPptSlidePlan.length} (يقل إذا بقيت بعض الأقسام أو الملاحظات فارغة عند
+                        التصدير الفعلي)
+                      </p>
+                      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                        <button
+                          type="button"
+                          disabled={exportBusy !== null}
+                          onClick={() => {
+                            setExportMsg(null);
+                            setReportMakerPptInitialSlideId(undefined);
+                            setReportMakerPptReviewOpen(true);
+                          }}
+                          className="flex min-h-[2.75rem] flex-1 items-center justify-center gap-2 rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-zinc-800 disabled:opacity-50"
+                        >
+                          <Presentation className="h-4 w-4" aria-hidden />
+                          مراجعة الشرائح ثم التصدير
+                        </button>
+                        <button
+                          type="button"
+                          disabled={exportBusy !== null}
+                          onClick={() => {
+                            if (!window.confirm("مسح كل محتوى صانع التقرير وإعادة البدء؟")) return;
+                            setReportMakerData(createEmptyReportMaker());
+                            setExportMsg(null);
+                            setReportMakerWizardStep(0);
+                          }}
+                          className="min-h-[2.75rem] rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          مسح وبدء جديد
+                        </button>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200/80 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setReportMakerWizardStep((s) => Math.max(0, s - 1))}
+                      disabled={reportMakerWizardStep === 0}
+                      className="inline-flex min-h-10 items-center gap-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 shadow-sm transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ChevronRight className="h-4 w-4" aria-hidden />
+                      السابق
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReportMakerWizardStep((s) => Math.min(REPORT_MAKER_WIZARD_LAST, s + 1))}
+                      disabled={reportMakerWizardStep >= REPORT_MAKER_WIZARD_LAST || !canAdvanceReportMakerStep}
+                      className="inline-flex min-h-10 items-center gap-1 rounded-xl bg-zinc-900 px-3 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      التالي
+                      <ChevronLeft className="h-4 w-4" aria-hidden />
+                    </button>
+                  </div>
                 </>
               )}
               {exportMsg && step === "report-maker" ? (
@@ -1679,6 +1916,16 @@ export default function App() {
                       );
                     })}
                   </div>
+                  <label className="mb-1 mt-4 block text-[11px] font-semibold text-zinc-700">عنوان التقرير على غلاف PowerPoint (اختياري)</label>
+                  <p className="mb-2 text-[11px] text-zinc-500">يظهر مكان العنوان الافتراضي الطويل. سطر عدة أسطر: انسخ مع أسطر.</p>
+                  <textarea
+                    value={data.coverTitle ?? ""}
+                    onChange={(e) => setData((prev) => ({ ...prev, coverTitle: e.target.value }))}
+                    rows={2}
+                    placeholder="مثال: جولة تفتيشية — باب جبريل"
+                    className="w-full min-h-10 resize-y rounded-lg border border-zinc-200 bg-zinc-50/50 px-3 py-2 text-right text-sm text-zinc-900 [unicode-bidi:plaintext]"
+                    dir="auto"
+                  />
                 </section>
               )}
 
@@ -1884,12 +2131,17 @@ export default function App() {
                             <button
                               key={opt.val}
                               type="button"
-                              onClick={() =>
+                              onClick={() => {
                                 setData((prev) => ({
                                   ...prev,
                                   scores: { ...prev.scores, [flowStep.question.id]: opt.val },
-                                }))
-                              }
+                                }));
+                                // طلب المستخدم: "نعم" أو "N/A" تنقل مباشرة للسؤال التالي.
+                                if (opt.val === "yes" || opt.val === "na") {
+                                  setInspectionStepIndex((i) => Math.min(Math.max(0, inspectionFlow.length - 1), i + 1));
+                                  window.scrollTo(0, 0);
+                                }
+                              }}
                               className={`min-h-[52px] rounded-2xl border-2 px-3 py-3 text-base font-bold transition-[transform,box-shadow,background-color] active:scale-[0.98] sm:min-h-14 sm:text-lg ${lane}`}
                             >
                               {opt.label}

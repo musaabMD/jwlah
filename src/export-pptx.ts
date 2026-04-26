@@ -1,4 +1,5 @@
 import pptxgen from "pptxgenjs";
+import { DEFAULT_INSPECTION_COVER_TITLE } from "./constants";
 import { MHC_LOGO_PATH, PPTX_CLOSING_BG_PATH, PPTX_COVER_BG_PATH } from "./branding";
 import { InspectionData } from "./types";
 import {
@@ -27,13 +28,23 @@ function truncateChartLabel(text: string, maxChars: number): string {
 
 const ACCENT = "0f172a";
 const ACCENT_LIGHT = "334155";
-/** Masks the baked-in date line on the cover template so we can print live tour metadata. */
-const COVER_MASK_FILL = "274f7d";
-/** Cover metadata band: tall enough for 4 lines of Arabic at ~14pt without overlap (~22pt leading). */
-const COVER_META_BAND_H = 1.28;
-const COVER_META_FONT = 14;
-/** Points — explicit leading so PptxGenJS does not stack lines in a short text box. */
-const COVER_META_LINE_SPACING = 22;
+/** Tour cover text block (نص على اليسار لموازاة شعار في القالب). */
+const COVER_BLOCK_X = 0.42;
+const COVER_BLOCK_W = 5.95;
+const COVER_BACK_Y = 0.92;
+const COVER_BACK_H = 2.82;
+const COVER_TOP_FS = 22;
+const COVER_TOP_LINE_SPACING = 30;
+const COVER_META_FONT = 15;
+const COVER_META_LINE_SPACING = 24;
+
+/** PptxGen tables are LTR; with rtlMode, column 0 is still left. Use LTR [ملاحظة، تقييم، بند] so reading RTL shows بند first (right) and ملاحظة last (left). */
+const itemTableColW: [number, number, number] = [1.95, 1.15, 6.1];
+
+function resolveCoverTitle(data: InspectionData): string {
+  const t = data.coverTitle?.trim();
+  return t || DEFAULT_INSPECTION_COVER_TITLE;
+}
 
 function gregorianSlashFromIso(iso: string): string {
   if (!iso?.trim()) return "—";
@@ -74,16 +85,32 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
   const coverBgB64 = await fetchPublicImageAsPptxBase64(PPTX_COVER_BG_PATH);
   const closingBgB64 = await fetchPublicImageAsPptxBase64(PPTX_CLOSING_BG_PATH);
 
+  const coverTitle = resolveCoverTitle(data);
   const title = pptx.addSlide();
   if (coverBgB64) {
     title.background = { data: coverBgB64 };
-    title.addShape(pptx.ShapeType.rect, {
-      x: 0.25,
-      y: 2.98,
-      w: 9.5,
-      h: COVER_META_BAND_H,
-      fill: { color: COVER_MASK_FILL },
+    title.addShape(pptx.ShapeType.roundRect, {
+      x: COVER_BLOCK_X - 0.04,
+      y: COVER_BACK_Y,
+      w: COVER_BLOCK_W + 0.1,
+      h: COVER_BACK_H,
+      fill: { color: "0f172a", transparency: 42 },
       line: { width: 0 },
+      rectRadius: 0.14,
+    });
+    title.addText(coverTitle, {
+      x: COVER_BLOCK_X,
+      y: 1.12,
+      w: COVER_BLOCK_W,
+      h: 0.9,
+      fontSize: COVER_TOP_FS,
+      bold: true,
+      color: "FFFFFF",
+      align: "right",
+      valign: "middle",
+      fontFace: "Arial",
+      lineSpacing: COVER_TOP_LINE_SPACING,
+      ...PPTX_PARA_RTL,
     });
     const metaLines = [
       `تقرير الجولة: ${data.hospital || "—"}`,
@@ -94,18 +121,18 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
       metaLines.push(`فريق الجولة: ${data.inspectors.join("، ")}`);
     }
     title.addText(metaLines.join("\n"), {
-      x: 0.35,
-      y: 3.0,
-      w: 9.3,
-      h: COVER_META_BAND_H - 0.02,
+      x: COVER_BLOCK_X,
+      y: 2.0,
+      w: COVER_BLOCK_W,
+      h: 1.68,
       fontSize: COVER_META_FONT,
       bold: true,
-      color: "FFFFFF",
-      align: "center",
-      valign: "middle",
+      color: "F1F5F9",
+      align: "right",
+      valign: "top",
       fontFace: "Arial",
       lineSpacing: COVER_META_LINE_SPACING,
-      margin: [6, 10, 6, 10],
+      margin: [2, 6, 2, 6],
       ...PPTX_PARA_RTL,
     });
   } else {
@@ -119,13 +146,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
         h: 0.85,
       });
     }
-    const titleBodyLines = [
-      "الإدارة التنفيذية للصحة العامة المجتمعية",
-      "إدارة الطب الوقائي",
-      "مكافحة العدوى المجتمعية",
-      "جولة إشرافية للمنشآت الصحية لموسم حج 1447هـ",
-    ];
-    title.addText(titleBodyLines.join("\n"), {
+    title.addText(coverTitle, {
       x: 0.5,
       y: 1.05,
       w: 9,
@@ -164,36 +185,75 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
   }
 
   const summary = pptx.addSlide();
-  summary.background = { color: "FFFFFF" };
+  summary.background = { color: "F8FAFC" };
   summary.addShape(pptx.ShapeType.rect, {
-    x: 8.85,
-    y: 0.28,
-    w: 0.12,
-    h: 4.9,
+    x: 0,
+    y: 0,
+    w: 10,
+    h: 0.12,
     fill: { color: ACCENT },
     line: { color: ACCENT, width: 0 },
   });
   summary.addText("ملخص الامتثال", {
     x: 0.4,
-    y: 0.32,
+    y: 0.26,
     w: 9.2,
-    h: 0.52,
+    h: 0.48,
     fontSize: 22,
     bold: true,
-    color: "171717",
+    color: "0f172a",
+    align: "right",
+    ...PPTX_PARA_RTL,
+  });
+  const summaryContext = [data.hospital?.trim() || "—", `${gregorianSlashFromIso(data.date)}م`].join("   •   ");
+  summary.addText(summaryContext, {
+    x: 0.4,
+    y: 0.7,
+    w: 9.2,
+    h: 0.28,
+    fontSize: 12,
+    color: "64748B",
     align: "right",
     ...PPTX_PARA_RTL,
   });
   summary.addText(`الإجمالي: ${metrics.earned} / ${metrics.total}  •  ${metrics.percentage}٪`, {
     x: 0.4,
-    y: 0.82,
+    y: 0.98,
     w: 9.2,
-    h: 0.42,
+    h: 0.4,
     fontSize: 17,
-    color: "404040",
+    bold: true,
+    color: "334155",
     align: "right",
     ...PPTX_PARA_RTL,
   });
+
+  const barTrackX = 0.45;
+  const barTrackY = 1.32;
+  const barTrackW = 9.1;
+  const barTrackH = 0.32;
+  const barPct = metrics.total > 0 ? Math.max(0, Math.min(100, metrics.percentage)) : 0;
+  summary.addShape(pptx.ShapeType.roundRect, {
+    x: barTrackX,
+    y: barTrackY,
+    w: barTrackW,
+    h: barTrackH,
+    fill: { color: "E4E4E7" },
+    line: { color: "D4D4D8", width: 0.5 },
+    rectRadius: 0.08,
+  });
+  if (barPct > 0) {
+    const fillW = (barTrackW * barPct) / 100;
+    summary.addShape(pptx.ShapeType.roundRect, {
+      x: barTrackX,
+      y: barTrackY,
+      w: fillW,
+      h: barTrackH,
+      fill: { color: ACCENT_LIGHT },
+      line: { width: 0 },
+      rectRadius: 0.08,
+    });
+  }
 
   if (metrics.total > 0 && sections.length > 0) {
     summary.addChart(
@@ -206,10 +266,10 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
         },
       ],
       {
-        x: 0.4,
-        y: 1.15,
-        w: 4.85,
-        h: 4.05,
+        x: 0.45,
+        y: 1.72,
+        w: 4.75,
+        h: 3.58,
         barDir: "bar",
         chartColors: ["4472C4"],
         valAxisMaxVal: 100,
@@ -233,14 +293,14 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
         {
           name: "الإجمالي",
           labels: ["نعم", "لا"],
-          values: [metrics.earned, metrics.total - metrics.earned],
+          values: [metrics.earned, Math.max(0, metrics.total - metrics.earned)],
         },
       ],
       {
-        x: 5.35,
-        y: 1.15,
-        w: 4.25,
-        h: 3.75,
+        x: 5.32,
+        y: 1.72,
+        w: 4.23,
+        h: 3.58,
         chartColors: ["15803D", "B91C1C"],
         showPercent: true,
         showLegend: true,
@@ -258,7 +318,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
   } else {
     summary.addText("لا توجد بنود مُقيَّمة لعرض الرسوم البيانية.", {
       x: 0.4,
-      y: 1.6,
+      y: 1.95,
       w: 9.2,
       h: 0.55,
       fontSize: 16,
@@ -275,7 +335,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
   const sectionScoreRow = (title: string, earned: number, total: number, percentage: number) => [
     [
       {
-        text: `${title}\nنتيجة القسم: ${earned}/${total}  •  ${percentage}%`,
+        text: `${title}\nنتيجة القسم: ${earned}/${total}  •  ${percentage}٪`,
         options: {
           colspan: 3,
           align: "right" as const,
@@ -354,9 +414,9 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
 
     const tableRows = [
       [
-        { text: "البند", options: { ...headerBase, align: "right" as const } },
-        { text: "التقييم", options: { ...headerBase, align: "center" as const } },
         { text: "ملاحظة", options: { ...headerBase, align: "right" as const } },
+        { text: "التقييم", options: { ...headerBase, align: "center" as const } },
+        { text: "البند", options: { ...headerBase, align: "right" as const } },
       ],
       ...sectionScoreRow(section.title, earned, total, percentage),
       ...section.questions.map((q) => {
@@ -365,8 +425,15 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
         const ansColor = ans === "نعم" ? ("15803D" as const) : ans === "لا" ? ("B91C1C" as const) : ("525252" as const);
         return [
           {
-            text: q.text,
-            options: { fontSize: 13, align: "right" as const, valign: "top" as const, border: cellBorder, ...PPTX_PARA_RTL },
+            text: note,
+            options: {
+              fontSize: 12,
+              color: "525252",
+              align: "right" as const,
+              valign: "top" as const,
+              border: cellBorder,
+              ...PPTX_PARA_RTL,
+            },
           },
           {
             text: ans,
@@ -381,15 +448,8 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
             },
           },
           {
-            text: note,
-            options: {
-              fontSize: 12,
-              color: "525252",
-              align: "right" as const,
-              valign: "top" as const,
-              border: cellBorder,
-              ...PPTX_PARA_RTL,
-            },
+            text: q.text,
+            options: { fontSize: 13, align: "right" as const, valign: "top" as const, border: cellBorder, ...PPTX_PARA_RTL },
           },
         ];
       }),
@@ -399,7 +459,7 @@ export async function downloadInspectionPptx(raw: InspectionData): Promise<void>
       x: 0.4,
       y: 0.72,
       w: 9.2,
-      colW: [6.1, 1.15, 1.95],
+      colW: itemTableColW,
       border: { pt: 0.5, color: "E5E5E5" },
       fontSize: 12,
       autoPage: true,

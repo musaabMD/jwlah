@@ -1,10 +1,13 @@
 import pptxgen from "pptxgenjs";
 import { REPORT_MAKER_TOUR_CLOSING_BG_PATH, REPORT_MAKER_TOUR_COVER_BG_PATH } from "./branding";
-import { buildReportMakerTourCoverLines } from "./report-maker-tour-cover-lines";
+import { buildReportMakerTourCoverLines, reportMakerTourCoverTitle } from "./report-maker-tour-cover-lines";
 import { SECTIONS } from "./constants";
 import { type ReportMakerData, safeReportMakerFileBase } from "./report-maker-types";
 import { dataUrlToPptxBase64, fetchPublicImageAsPptxBase64 } from "./export-helpers";
 import { PPTX_PARA_RTL } from "./pptx-rtl-opts";
+
+/** LTR order [ملاحظة، تقييم، بند] so RTL reading is بند → تقييم → ملاحظة. */
+const itemTableColW: [number, number, number] = [1.95, 1.15, 6.1];
 
 const ACCENT = "0f172a";
 /** Table header (matches inspection-style report tables). */
@@ -102,45 +105,63 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
 
   const tourCoverB64 = await fetchPublicImageAsPptxBase64(REPORT_MAKER_TOUR_COVER_BG_PATH);
   const tourClosingB64 = await fetchPublicImageAsPptxBase64(REPORT_MAKER_TOUR_CLOSING_BG_PATH);
+  const coverTitle = reportMakerTourCoverTitle(raw);
   const coverLines = buildReportMakerTourCoverLines(raw).join("\n");
-  const COVER_META_BAND_H = 1.48;
+  const COVER_BLOCK_X = 0.42;
+  const COVER_BLOCK_W = 5.95;
+  const COVER_BACK_Y = 0.92;
+  const COVER_BACK_H = 2.82;
   const COVER_META_FONT = 15;
   const COVER_META_LINE_SPACING = 24;
-  const COVER_MASK_FILL = "0f172a";
 
   const cover = pptx.addSlide();
   if (tourCoverB64) {
     cover.background = { data: tourCoverB64 };
-    cover.addShape(pptx.ShapeType.rect, {
-      x: 0.35,
-      y: 2.48,
-      w: 9.3,
-      h: COVER_META_BAND_H,
-      fill: { color: COVER_MASK_FILL, transparency: 38 },
+    cover.addShape(pptx.ShapeType.roundRect, {
+      x: COVER_BLOCK_X - 0.04,
+      y: COVER_BACK_Y,
+      w: COVER_BLOCK_W + 0.1,
+      h: COVER_BACK_H,
+      fill: { color: "0f172a", transparency: 42 },
       line: { width: 0 },
+      rectRadius: 0.14,
     });
-    cover.addText(coverLines, {
-      x: 0.4,
-      y: 2.5,
-      w: 9.2,
-      h: COVER_META_BAND_H - 0.04,
-      fontSize: COVER_META_FONT,
+    cover.addText(coverTitle, {
+      x: COVER_BLOCK_X,
+      y: 1.12,
+      w: COVER_BLOCK_W,
+      h: 0.9,
+      fontSize: 22,
       bold: true,
       color: "FFFFFF",
-      align: "center",
+      align: "right",
       valign: "middle",
       fontFace: "Arial",
+      lineSpacing: 30,
+      ...PPTX_PARA_RTL,
+    });
+    cover.addText(coverLines, {
+      x: COVER_BLOCK_X,
+      y: 2.0,
+      w: COVER_BLOCK_W,
+      h: 1.68,
+      fontSize: COVER_META_FONT,
+      bold: true,
+      color: "F1F5F9",
+      align: "right",
+      valign: "top",
+      fontFace: "Arial",
       lineSpacing: COVER_META_LINE_SPACING,
-      margin: [4, 8, 4, 8],
+      margin: [2, 6, 2, 6],
       ...PPTX_PARA_RTL,
     });
   } else {
     cover.background = { color: "1a3a5c" };
-    cover.addText(coverLines, {
+    cover.addText(`${coverTitle}\n\n${coverLines}`, {
       x: 0.5,
-      y: 2.15,
+      y: 1.35,
       w: 9,
-      h: 2.35,
+      h: 3.1,
       fontSize: COVER_META_FONT,
       bold: true,
       color: "FFFFFF",
@@ -256,8 +277,15 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
       return [
         [
           {
-            text: truncateCell(it.text, 380),
-            options: { fontSize: 13, align: "right" as const, valign: "top" as const, border: cellBorder, ...PPTX_PARA_RTL },
+            text: truncateCell(note, 200),
+            options: {
+              fontSize: 12,
+              color: "525252",
+              align: "right" as const,
+              valign: "top" as const,
+              border: cellBorder,
+              ...PPTX_PARA_RTL,
+            },
           },
           {
             text: ans,
@@ -272,15 +300,8 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
             },
           },
           {
-            text: truncateCell(note, 200),
-            options: {
-              fontSize: 12,
-              color: "525252",
-              align: "right" as const,
-              valign: "top" as const,
-              border: cellBorder,
-              ...PPTX_PARA_RTL,
-            },
+            text: truncateCell(it.text, 380),
+            options: { fontSize: 13, align: "right" as const, valign: "top" as const, border: cellBorder, ...PPTX_PARA_RTL },
           },
         ],
       ];
@@ -288,9 +309,9 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
 
     const tableRows = [
       [
-        { text: "البند", options: { ...headerBase, align: "right" as const } },
-        { text: "التقييم", options: { ...headerBase, align: "center" as const } },
         { text: "ملاحظة", options: { ...headerBase, align: "right" as const } },
+        { text: "التقييم", options: { ...headerBase, align: "center" as const } },
+        { text: "البند", options: { ...headerBase, align: "right" as const } },
       ],
       ...sectionScoreRow(section.title, earned, secTotal, secPct),
       ...(bodyRows.length > 0
@@ -309,7 +330,7 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
       x: 0.4,
       y: 0.72,
       w: 9.2,
-      colW: [6.1, 1.15, 1.95],
+      colW: itemTableColW,
       border: { pt: 0.5, color: "E5E5E5" },
       fontSize: 12,
       autoPage: true,

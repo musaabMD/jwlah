@@ -106,7 +106,7 @@ function mergeCatalogWithSaved(
 
 export function createEmptyReportMaker(): ReportMakerData {
   return {
-    title: "تقرير ميداني",
+    title: "تقرير جولة تفتيشية",
     facility: "",
     inspectors: [],
     date: todayLocalISO(),
@@ -130,7 +130,8 @@ export function normalizeReportMakerData(raw: Partial<ReportMakerData> | null | 
     title: typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : base.title,
     facility: typeof raw.facility === "string" ? raw.facility : "",
     inspectors: normalizeInspectorNames(raw.inspectors),
-    date: typeof raw.date === "string" && raw.date.trim() ? raw.date.trim() : base.date,
+    /** دائماً تاريخ يوم الاستخدام — لا نحتفظ بتاريخ قديم من التخزين */
+    date: todayLocalISO(),
     notes: typeof raw.notes === "string" ? raw.notes : "",
     items: mergedItems.length > 0 ? mergedItems : base.items,
     images: Array.isArray(raw.images) ? raw.images.filter((u): u is string => typeof u === "string" && u.startsWith("data:")) : [],

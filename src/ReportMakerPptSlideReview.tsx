@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef, ChangeEvent, useCallback } from "react";
-import { CheckCircle2, ImagePlus } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, ImagePlus } from "lucide-react";
 import { INSPECTORS, HOSPITALS, SECTIONS } from "./constants";
 import { ReportMakerChecklistSteps } from "./ReportMakerChecklistSteps";
 import { REPORT_MAKER_TOUR_CLOSING_BG_PATH } from "./branding";
@@ -55,6 +55,21 @@ export function ReportMakerPptSlideReview({ data, setData, initialSlideId, layou
     () => slides.find((s) => s.id === selectedSlideId) ?? slides[0] ?? null,
     [slides, selectedSlideId],
   );
+
+  const slideIndex = useMemo(
+    () => (activeSlide ? slides.findIndex((s) => s.id === activeSlide.id) : -1),
+    [slides, activeSlide],
+  );
+  const canPrev = slideIndex > 0;
+  const canNext = slideIndex >= 0 && slideIndex < slides.length - 1;
+  const goPrev = () => {
+    if (!canPrev) return;
+    setSelectedSlideId(slides[slideIndex - 1].id);
+  };
+  const goNext = () => {
+    if (!canNext) return;
+    setSelectedSlideId(slides[slideIndex + 1].id);
+  };
 
   const readFilesAsDataUrls = useCallback((files: FileList, onEach: (url: string) => void) => {
     Array.from(files).forEach((file) => {
@@ -128,32 +143,22 @@ export function ReportMakerPptSlideReview({ data, setData, initialSlideId, layou
               onChange={(e) => setData((p) => ({ ...p, title: e.target.value }))}
               className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/15"
             />
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label className="block text-[11px] font-semibold text-zinc-600">المنشأة</label>
-                <select
-                  value={data.facility}
-                  onChange={(e) => setData((p) => ({ ...p, facility: e.target.value }))}
-                  className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/15"
-                >
-                  <option value="">— اختر من القائمة —</option>
-                  {HOSPITALS.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-zinc-600">التاريخ</label>
-                <input
-                  type="date"
-                  value={data.date}
-                  onChange={(e) => setData((p) => ({ ...p, date: e.target.value }))}
-                  className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/15"
-                />
-              </div>
+            <div>
+              <label className="block text-[11px] font-semibold text-zinc-600">المنشأة</label>
+              <select
+                value={data.facility}
+                onChange={(e) => setData((p) => ({ ...p, facility: e.target.value }))}
+                className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/15"
+              >
+                <option value="">— اختر من القائمة —</option>
+                {HOSPITALS.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
             </div>
+            <p className="text-[11px] text-zinc-500">التاريخ: يوم الجاري تلقائياً (لا حاجة للتعديل).</p>
             <div>
               <label className="block text-[11px] font-semibold text-zinc-600">أسماء المكلفين (اختياري)</label>
               <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -300,6 +305,48 @@ export function ReportMakerPptSlideReview({ data, setData, initialSlideId, layou
   }
 
 
+  const navBar = activeSlide ? (
+    <div className="shrink-0 space-y-2 border-b border-zinc-100 pb-3">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={goPrev}
+          disabled={!canPrev}
+          className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-zinc-800 shadow-sm transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="الشريحة السابقة"
+        >
+          <ChevronRight className="h-5 w-5" aria-hidden />
+        </button>
+        <p className="min-w-0 flex-1 text-center text-sm font-bold tabular-nums text-zinc-800">
+          {slideIndex + 1} <span className="text-zinc-400">/</span> {slides.length}
+        </p>
+        <button
+          type="button"
+          onClick={goNext}
+          disabled={!canNext}
+          className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-zinc-800 shadow-sm transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="الشريحة التالية"
+        >
+          <ChevronLeft className="h-5 w-5" aria-hidden />
+        </button>
+      </div>
+      <div>
+        <label className="mb-1 block text-[10px] font-semibold text-zinc-500">الانتقال السريع</label>
+        <select
+          value={selectedSlideId}
+          onChange={(e) => setSelectedSlideId(e.target.value)}
+          className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-2 text-[11px] font-medium text-zinc-900 outline-none focus:ring-2 focus:ring-zinc-900/15"
+        >
+          {slides.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.n}. {s.labelAr}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div
       className={
@@ -309,78 +356,65 @@ export function ReportMakerPptSlideReview({ data, setData, initialSlideId, layou
       }
       dir="rtl"
     >
-      <p className="shrink-0 text-[11px] leading-relaxed text-zinc-500">
-        اختر شريحة من القائمة الجانبية — تظهر المعاينة والتعديل في اللوحة الرئيسية. الشرائح التي لن تُصدَّر (مثل الملاحظات الفارغة) موضّحة في البطاقة.
-        <span className="mt-1 block font-semibold tabular-nums text-zinc-700">
-          عدد الشرائح في الملف بعد التصدير: {exportSlideCount}
-        </span>
-      </p>
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-zinc-50/90 px-3 py-2.5 sm:px-4">
+        <div className="flex flex-wrap items-baseline gap-2">
+          <span className="text-[11px] font-semibold text-zinc-500">الشريحات (المخطط)</span>
+          <span className="text-lg font-extrabold tabular-nums text-zinc-900">
+            {activeSlide ? slideIndex + 1 : 0} <span className="text-zinc-400">/</span> {slides.length}
+          </span>
+        </div>
+        <p className="text-[11px] tabular-nums text-zinc-600">
+          بعد التصدير: <span className="font-bold text-zinc-800">{exportSlideCount}</span> شريحة
+        </p>
+      </div>
 
       <div
         className={
           isPage
-            ? "flex min-h-[200px] flex-1 flex-col gap-3 sm:min-h-0 sm:flex-row sm:gap-4"
-            : "flex min-h-[280px] flex-1 flex-col gap-3 sm:min-h-[360px] sm:flex-row sm:gap-4"
+            ? "grid min-h-0 min-w-0 flex-1 grid-cols-1 gap-3 lg:min-h-[240px] lg:grid-cols-2 lg:gap-4"
+            : "grid min-h-[240px] min-w-0 flex-1 grid-cols-1 gap-3 lg:min-h-[320px] lg:grid-cols-2 lg:gap-4"
         }
       >
-        <aside
-          className={
-            isPage
-              ? "flex max-h-40 shrink-0 flex-col gap-1 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50/90 sm:max-h-none sm:w-60 sm:shrink-0 sm:border-s sm:ps-2 lg:w-64"
-              : "flex max-h-40 shrink-0 flex-col gap-1 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50/90 sm:max-h-none sm:w-52 sm:border-s sm:ps-2"
-          }
-        >
-          <p className="shrink-0 px-2 pt-2 text-[10px] font-bold uppercase tracking-wide text-zinc-500">الشرائح</p>
-          <div className="flex flex-row gap-1 overflow-x-auto px-2 pb-2 sm:flex-col sm:overflow-y-auto sm:px-1 sm:pb-2">
-            {slides.map((s) => {
-              const sel = s.id === selectedSlideId;
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setSelectedSlideId(s.id)}
-                  className={`shrink-0 rounded-lg border px-2.5 py-2 text-start text-[11px] font-semibold transition-colors sm:w-full ${
-                    sel
-                      ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
-                      : "border-transparent bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-100"
-                  }`}
-                >
-                  <span className="tabular-nums text-zinc-400">{s.n}.</span> {s.labelAr}
-                </button>
-              );
-            })}
-          </div>
-        </aside>
-
-        <main
-          className={
-            isPage
-              ? "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain rounded-xl border border-zinc-200 bg-white p-3 shadow-sm sm:p-4"
-              : "min-h-0 min-w-0 flex-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-3 shadow-sm sm:p-4"
-          }
-        >
-          {activeSlide ? (
-            <div className="flex min-h-0 flex-col gap-3">
-              <header className="shrink-0 flex flex-wrap items-baseline justify-between gap-2 border-b border-zinc-100 pb-2">
-                <h3 className="text-sm font-bold text-zinc-900">
-                  الشريحة {activeSlide.n}: {activeSlide.labelAr}
-                </h3>
-                <span className="text-[10px] font-medium text-zinc-400">معاينة 16:9</span>
+        {activeSlide ? (
+          <>
+            {/* يمين (العمود الأوّل في RTL): التعديل */}
+            <section
+              className="order-2 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white p-3 shadow-sm sm:p-4 lg:order-none"
+            >
+              {navBar}
+              <header className="mt-3 shrink-0">
+                <h3 className="text-sm font-bold leading-snug text-zinc-900">{activeSlide.labelAr}</h3>
+                <p className="mt-0.5 text-[10px] font-medium text-zinc-400">تعديل الحقول — تنعكس فوراً في المعاينة يساراً</p>
               </header>
-              <div className="w-full shrink-0">
-                <SlideVisual slide={activeSlide} data={data} itemById={itemById} />
+              <div className="mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain pe-0.5">
+                {renderEditor(activeSlide)}
               </div>
-              <div className="min-h-0 shrink-0 border-t border-zinc-100 pt-4">{renderEditor(activeSlide)}</div>
-            </div>
-          ) : (
-            <p className="text-sm text-zinc-500">لا شرائح للعرض.</p>
-          )}
-        </main>
-      </div>
+            </section>
 
-      <p className={`shrink-0 text-[11px] text-zinc-500 ${isPage ? "max-sm:line-clamp-2" : ""}`}>
-        صور المرفقات العامة والبنود: تعديل من لوحة الشريحة الحالية أو من الصفحة الرئيسية لصانع التقرير.
-      </p>
+            {/* يسار (العمود الثاني في RTL): معاينة مباشرة */}
+            <section
+              className="order-1 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-emerald-200/70 bg-gradient-to-b from-emerald-50/80 to-zinc-50/40 p-2 sm:p-3 lg:order-none"
+            >
+              <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
+                <span className="text-xs font-bold text-emerald-900">المعاينة المباشرة</span>
+                <span
+                  className="rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-extrabold tabular-nums text-emerald-800 shadow-sm ring-1 ring-emerald-200/80"
+                  aria-label={`الشريحة ${slideIndex + 1} من ${slides.length}`}
+                >
+                  {slideIndex + 1} / {slides.length}
+                </span>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                <div className="w-full min-w-0 max-w-full">
+                  <SlideVisual slide={activeSlide} data={data} itemById={itemById} />
+                </div>
+              </div>
+            </section>
+          </>
+        ) : (
+          <p className="col-span-full text-center text-sm text-zinc-500">لا شرائح للعرض.</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -478,7 +512,10 @@ function SlideVisual({
             <h4 className="shrink-0 text-[13px] font-bold leading-snug text-[#111c2c] sm:text-sm">
               جدول البنود — {truncatePreview(sec.title, 72)}
             </h4>
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 shadow-sm">
+            <div
+              dir="rtl"
+              className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 shadow-sm"
+            >
               <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_3.5rem_28%] gap-0 bg-[#111c2c] px-0.5 text-[11px] font-bold leading-tight text-white sm:text-xs">
                 <span className="px-2 py-2.5">البند</span>
                 <span className="flex items-center justify-center border-s border-white/25 py-2.5">التقييم</span>

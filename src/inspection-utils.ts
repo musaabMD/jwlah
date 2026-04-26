@@ -103,6 +103,7 @@ export function normalizeInspectionData(data: InspectionData): InspectionData {
     ...data,
     scores,
     itemNotes,
+    coverTitle: toTrimmedString((data as InspectionData).coverTitle),
   };
 }
 
@@ -225,6 +226,7 @@ export function createEmptyInspectionData(): InspectionData {
   const iso = `${y}-${m}-${day}`;
   return {
     inspectors: [],
+    coverTitle: "",
     hospital: "",
     date: iso,
     day: new Intl.DateTimeFormat("ar-SA", { weekday: "long" }).format(new Date(`${iso}T12:00:00`)),

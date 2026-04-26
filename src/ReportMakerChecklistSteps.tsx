@@ -2,7 +2,7 @@ import React, { useMemo, useState, useCallback, ChangeEvent } from "react";
 import { ChevronDown, ImagePlus, XCircle } from "lucide-react";
 import { MHC_LOGO_PATH } from "./branding";
 import { SECTIONS } from "./constants";
-import { buildReportMakerTourCoverLines } from "./report-maker-tour-cover-lines";
+import { buildReportMakerTourCoverLines, reportMakerTourCoverTitle } from "./report-maker-tour-cover-lines";
 import type { ReportMakerData } from "./report-maker-types";
 
 const ACCENTS = ["#1a6b3c", "#b5451b", "#1a4b8c", "#7b2d8b", "#8b6914"] as const;
@@ -44,6 +44,7 @@ export function ReportMakerChecklistSteps({
   const [internalSectionId, setInternalSectionId] = useState(() => SECTIONS[0]?.id ?? "");
   const activeSectionId = onlySectionId ?? internalSectionId;
   const [openItemIds, setOpenItemIds] = useState<Record<string, boolean>>({});
+  const [includedSections, setIncludedSections] = useState<Record<string, boolean>>({});
 
   const itemById = useMemo(() => new Map(data.items.map((it) => [it.id, it] as const)), [data.items]);
 
@@ -56,10 +57,24 @@ export function ReportMakerChecklistSteps({
   );
 
   const scoreColor = pct >= 80 ? "#1a6b3c" : pct >= 50 ? "#b5851b" : "#b5451b";
+  const isActiveSectionIncluded = includedSections[activeSectionId] !== false;
 
   const toggleOpen = useCallback((itemId: string) => {
     setOpenItemIds((prev) => ({ ...prev, [itemId]: !prev[itemId] }));
   }, []);
+
+  const toggleSectionIncluded = useCallback((sectionId: string) => {
+    setIncludedSections((prev) => ({ ...prev, [sectionId]: prev[sectionId] === false }));
+  }, []);
+
+  const goToAdjacentSection = useCallback(
+    (dir: 1 | -1) => {
+      const idx = Math.max(0, SECTIONS.findIndex((s) => s.id === activeSectionId));
+      const nextIdx = Math.min(SECTIONS.length - 1, Math.max(0, idx + dir));
+      setInternalSectionId(SECTIONS[nextIdx]?.id ?? internalSectionId);
+    },
+    [activeSectionId, internalSectionId],
+  );
 
   const toggleCheck = useCallback(
     (itemId: string) => {
@@ -74,6 +89,7 @@ export function ReportMakerChecklistSteps({
     [data.items, setData],
   );
 
+  const tourCoverTitle = useMemo(() => reportMakerTourCoverTitle(data), [data]);
   const tourLines = useMemo(() => buildReportMakerTourCoverLines(data), [data]);
   const padMain = compact ? "px-3 py-3" : "px-4 py-4 sm:px-6 sm:py-5";
 
@@ -95,17 +111,14 @@ export function ReportMakerChecklistSteps({
             </p>
           </>
         ) : (
-          tourLines.map((line, i) => (
-            <p
-              key={i}
-              className={`leading-snug text-white/95 [unicode-bidi:plaintext] ${
-                i === 0 ? "text-sm font-bold" : "text-[11px] font-semibold sm:text-xs"
-              }`}
-              dir="auto"
-            >
-              {line}
-            </p>
-          ))
+          <>
+            <p className="text-sm font-bold leading-snug text-white [unicode-bidi:plaintext]">{tourCoverTitle}</p>
+            {tourLines.map((line, i) => (
+              <p key={i} className="text-[11px] font-semibold leading-snug text-white/95 [unicode-bidi:plaintext] sm:text-xs" dir="auto">
+                {line}
+              </p>
+            ))}
+          </>
         )}
       </div>
       {!compact && !onlySectionId ? (
@@ -160,43 +173,92 @@ export function ReportMakerChecklistSteps({
           </div>
 
           {!onlySectionId ? (
-            <div className="flex gap-0.5 overflow-x-auto border-b border-zinc-100 px-3 py-2 scrollbar-none [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {SECTIONS.map((sec, i) => {
-                const isActive = sec.id === activeSectionId;
-                const sm = sectionMetrics(sec, itemById);
-                const ac = ACCENTS[i % ACCENTS.length];
-                return (
+            <div className="border-b border-zinc-100 px-3 py-3 sm:px-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold text-zinc-600">التنقل بين الأقسام (قسم واحد في كل مرة)</p>
+                <div className="flex items-center gap-1.5">
                   <button
-                    key={sec.id}
                     type="button"
-                    onClick={() => setInternalSectionId(sec.id)}
-                    className="flex shrink-0 items-center gap-1.5 border-0 border-b-[3px] bg-transparent px-2.5 py-2 text-[11px] font-semibold transition-colors sm:text-[12px]"
-                    style={{
-                      borderBottomColor: isActive ? ac : "transparent",
-                      color: isActive ? ac : "#a3a3a3",
-                      fontWeight: isActive ? 700 : 500,
-                    }}
+                    onClick={() => goToAdjacentSection(-1)}
+                    disabled={SECTIONS.findIndex((s) => s.id === activeSectionId) <= 0}
+                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
                   >
-                    <span className="max-w-[9rem] truncate sm:max-w-[13rem]" title={sec.title}>
-                      {sec.title}
-                    </span>
-                    <span
-                      className="rounded-full px-1.5 py-0.5 font-mono text-[9px] tabular-nums"
-                      style={{
-                        background: isActive ? `${ac}22` : "#f4f4f5",
-                        color: isActive ? ac : "#a1a1aa",
-                      }}
-                    >
-                      {sm.pct}٪
-                    </span>
+                    السابق
                   </button>
-                );
-              })}
+                  <button
+                    type="button"
+                    onClick={() => goToAdjacentSection(1)}
+                    disabled={SECTIONS.findIndex((s) => s.id === activeSectionId) >= SECTIONS.length - 1}
+                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
+                  >
+                    التالي
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+                {SECTIONS.map((sec, i) => {
+                  const isActive = sec.id === activeSectionId;
+                  const sm = sectionMetrics(sec, itemById);
+                  const ac = ACCENTS[i % ACCENTS.length];
+                  const included = includedSections[sec.id] !== false;
+                  return (
+                    <button
+                      key={sec.id}
+                      type="button"
+                      onClick={() => setInternalSectionId(sec.id)}
+                      className={`rounded-lg border px-2.5 py-2 text-right transition ${
+                        isActive ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-zinc-50/70 text-zinc-800 hover:bg-zinc-100"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-[11px] font-semibold" title={sec.title}>
+                          {sec.title}
+                        </span>
+                        <span
+                          className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold tabular-nums ${
+                            isActive ? "bg-white/15 text-white" : "bg-white text-zinc-600"
+                          }`}
+                        >
+                          {sm.pct}٪
+                        </span>
+                      </div>
+                      <div className="mt-1.5 flex items-center justify-between">
+                        <span className={`text-[10px] tabular-nums ${isActive ? "text-zinc-200" : "text-zinc-500"}`}>
+                          {sm.checked}/{sm.total}
+                        </span>
+                        <span
+                          role="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleSectionIncluded(sec.id);
+                          }}
+                          className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
+                            included
+                              ? isActive
+                                ? "bg-emerald-300/30 text-emerald-100"
+                                : "bg-emerald-100 text-emerald-800"
+                              : isActive
+                                ? "bg-zinc-700 text-zinc-200"
+                                : "bg-zinc-200 text-zinc-600"
+                          }`}
+                        >
+                          {included ? "مدرج" : "متخطى"}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           ) : null}
 
           <div className={`min-h-0 flex-1 overflow-y-auto ${compact ? "p-2" : "p-4 sm:p-5"}`}>
-            {!activeSection ? null : activeSection.questions.length === 0 ? (
+            {!activeSection ? null : !isActiveSectionIncluded ? (
+              <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-8 text-center">
+                <p className="text-sm font-semibold text-zinc-700">تم تخطي هذا القسم</p>
+                <p className="mt-1 text-[11px] text-zinc-500">يمكنك إعادة إدراجه في أي وقت من بطاقة القسم بالأعلى.</p>
+              </div>
+            ) : activeSection.questions.length === 0 ? (
               <p className="py-8 text-center text-sm text-zinc-400">لا بنود في هذا القسم.</p>
             ) : (
               <ul className="space-y-3">

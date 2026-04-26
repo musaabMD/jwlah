@@ -20,6 +20,8 @@ export type ScoreValue = "yes" | "no" | "na" | null;
 export interface InspectionData {
   id?: string;
   inspectors: string[];
+  /** Optional title on the PPT cover (replaces the long default heading). Multi-line: use newlines. */
+  coverTitle?: string;
   hospital: string;
   date: string;
   day: string;

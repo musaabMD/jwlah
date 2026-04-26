@@ -28,6 +28,9 @@ export const HOSPITALS = [
   "مركز صحي باب المجيدي",
 ];
 
+/** Shown on the tour PPT cover when `coverTitle` is empty. */
+export const DEFAULT_INSPECTION_COVER_TITLE = "تقرير جولة تفتيشية";
+
 export const SECTIONS: InspectionSection[] = [
   {
     id: "ipc_bundle_compliance_audit",
@@ -186,6 +189,7 @@ export const SECTIONS: InspectionSection[] = [
       { id: "tr2", text: "التعامل مع الحالات التنفسية" },
       { id: "tr3", text: "فرز النفايات" },
       { id: "tr4", text: "توفر دليل إرشادي لمكافحة العدوى" },
+      { id: "tr6", text: "تدريب على التعامل مع الانسكابات البيولوجية" },
       { id: "tr5", text: "تدريب على اختيار وارتداء وخلع معدات الحماية الشخصية (PPE) بشكل صحيح" },
     ],
   },

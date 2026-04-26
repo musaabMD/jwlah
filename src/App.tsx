@@ -473,7 +473,7 @@ export default function App() {
 
   const headerTitle =
     step === "home"
-      ? "نماذج الجولات"
+      ? "جولة"
       : step === "setup"
         ? "إعداد الجولة"
         : step === "inspection"
@@ -482,7 +482,7 @@ export default function App() {
             ? "ملخص النتائج"
             : step === "history"
               ? "سجل الجولات"
-              : "نماذج الجولات";
+              : "جولة";
 
   const headerSubtitle: string | null =
     step === "setup"

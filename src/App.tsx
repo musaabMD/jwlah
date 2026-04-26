@@ -302,6 +302,16 @@ export default function App() {
     setStep("setup");
   };
 
+  /** من الشاشة الرئيسية عند وجود مسودة: يمسح المسودة ويبقى في الرئيسية حتى يختار المستخدم النموذج. */
+  const clearDraftStayOnHome = () => {
+    setData(createEmptyInspectionData());
+    localStorage.removeItem(DRAFT_STORAGE_KEY);
+    setSetupWizardStep(0);
+    setInspectionStepIndex(0);
+    setExportMsg(null);
+    setStep("home");
+  };
+
   const deleteFromHistory = (id: string) => {
     setHistory((prev) => {
       const next = (prev as { id: string }[]).filter((h) => h.id !== id);
@@ -793,62 +803,81 @@ export default function App() {
               className="space-y-4"
             >
               <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
-                <h2 className="text-base font-semibold">اختر نموذج الجولة</h2>
-                <p className="mt-1 text-[12px] text-zinc-500">اختر النموذج المتاح، وبقية النماذج قريبًا.</p>
+                <h2 className="text-base font-semibold">{hasDraftToResume ? "متابعة أو بدء جديد" : "اختر نموذج الجولة"}</h2>
+                <p className="mt-1 text-[12px] text-zinc-500">
+                  {hasDraftToResume
+                    ? "استأنف المسودة، أو اضغط «جولة جديدة» لتظهر قائمة النماذج."
+                    : "اختر النموذج المتاح، وبقية النماذج قريبًا."}
+                </p>
                 {hasDraftToResume ? (
-                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                    <p className="text-[12px] font-semibold text-amber-900">تم العثور على مسودة محفوظة على هذا الجهاز.</p>
-                    <div className="mt-2 flex flex-wrap gap-2">
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3.5 sm:p-4">
+                    <p className="text-sm font-semibold text-amber-950">توجد جولة غير مكتملة على هذا الجهاز</p>
+                    <p className="mt-1 text-[12px] leading-relaxed text-amber-900/90">استأنف من حيث توقفت، أو ابدأ جولة جديدة (تُستبدل المسودة الحالية).</p>
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-stretch">
                       <button
                         type="button"
                         onClick={() => {
                           setHomeMsg(null);
                           setStep("setup");
                         }}
-                        className="rounded-lg bg-zinc-900 px-3 py-1.5 text-[11px] font-semibold text-white"
+                        className="min-h-[2.75rem] flex-1 rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-zinc-800"
                       >
-                        استئناف المسودة
+                        استئناف
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHomeMsg(null);
+                          clearDraftStayOnHome();
+                        }}
+                        className="min-h-[2.75rem] flex-1 rounded-xl border-2 border-zinc-900/15 bg-white px-4 py-2.5 text-sm font-bold text-zinc-900 shadow-sm transition hover:bg-zinc-50"
+                      >
+                        جولة جديدة
+                      </button>
+                    </div>
+                    <p className="mt-3 border-t border-amber-200/80 pt-3 text-center">
                       <button
                         type="button"
                         disabled={exportBusy !== null}
                         onClick={downloadPptxAndPrepareDraftEmail}
-                        className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-800 disabled:opacity-60"
+                        className="text-[12px] font-medium text-amber-900 underline decoration-amber-700/40 underline-offset-2 hover:decoration-amber-800 disabled:opacity-50"
                       >
-                        {exportBusy === "pptx" ? "..." : "إرسال نسخة PPT للمسودة"}
+                        {exportBusy === "pptx" ? "جارٍ التنزيل…" : "تنزيل وإرسال نسخة PPT من المسودة"}
                       </button>
-                    </div>
+                    </p>
                   </div>
                 ) : null}
-                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {[
-                    { id: "preventive", label: "الطب الوقائي", action: "open" as const },
-                    { id: "env-health", label: "صحة البيئة", action: "soon" as const },
-                    { id: "infectious", label: "الامراض المعدية", action: "soon" as const },
-                    { id: "occupational-health", label: "الصحة المهنية", action: "soon" as const },
-                  ].map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => {
-                        if (item.action === "open") {
-                          setHomeMsg(null);
-                          setStep("setup");
-                          return;
-                        }
-                        setHomeMsg(`${item.label}: قريبا`);
-                      }}
-                      className="flex min-h-[3rem] items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-right text-sm font-medium text-zinc-800 hover:bg-zinc-100"
-                    >
-                      <span>{item.label}</span>
-                      {item.action === "open" ? (
-                        <span className="rounded-md bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">متاح</span>
-                      ) : (
-                        <span className="rounded-md bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold text-zinc-700">قريبا</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
+                {!hasDraftToResume ? (
+                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {[
+                      { id: "preventive", label: "الطب الوقائي", action: "open" as const },
+                      { id: "env-health", label: "صحة البيئة", action: "soon" as const },
+                      { id: "infectious", label: "الامراض المعدية", action: "soon" as const },
+                      { id: "occupational-health", label: "الصحة المهنية", action: "soon" as const },
+                    ].map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          if (item.action === "open") {
+                            setHomeMsg(null);
+                            setStep("setup");
+                            return;
+                          }
+                          setHomeMsg(`${item.label}: قريبا`);
+                        }}
+                        className="flex min-h-[3rem] items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-right text-sm font-medium text-zinc-800 hover:bg-zinc-100"
+                      >
+                        <span>{item.label}</span>
+                        {item.action === "open" ? (
+                          <span className="rounded-md bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">متاح</span>
+                        ) : (
+                          <span className="rounded-md bg-zinc-200 px-2 py-0.5 text-[10px] font-semibold text-zinc-700">قريبا</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </section>
               {homeMsg && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{homeMsg}</p>}
               {exportMsg && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{exportMsg}</p>}

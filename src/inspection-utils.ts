@@ -110,6 +110,8 @@ export function safeExportBase(data: InspectionData): string {
 
 /** Fresh tour: same defaults as the initial app state (today at noon, empty scores). */
 export function createEmptyInspectionData(): InspectionData {
+  const optionalByDefaultQuestionIds =
+    SECTIONS.find((section) => section.id === "ipc_bundle_compliance_audit")?.questions.map((q) => q.id) ?? [];
   const d = new Date();
   d.setHours(12, 0, 0, 0);
   const y = d.getFullYear();
@@ -127,7 +129,7 @@ export function createEmptyInspectionData(): InspectionData {
     itemNotes: {},
     sectionNotes: {},
     sectionImages: {},
-    skippedQuestionIds: [],
+    skippedQuestionIds: optionalByDefaultQuestionIds,
   };
 }
 

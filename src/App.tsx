@@ -39,7 +39,7 @@ import { MHC_LOGO_PATH } from "./branding";
 import { downloadInspectionPptx } from "./export-pptx";
 import { downloadInspectionReportPdf, printInspectionReport } from "./pdf-export";
 
-const SETUP_STEP_COUNT = 5;
+const SETUP_STEP_COUNT = 4;
 const DRAFT_STORAGE_KEY = "tour_draft";
 const DRAFT_STORAGE_VERSION = 2 as const;
 const DRAFT_EMAIL_RECIPIENTS = [
@@ -147,7 +147,6 @@ function persistSessionToStorage(payload: DraftPayloadV2) {
 const SETUP_WIZARD_STEPS = [
   { label: "الفريق" },
   { label: "المنشأة" },
-  { label: "البريد" },
   { label: "البنود" },
 ] as const;
 
@@ -187,8 +186,9 @@ export default function App() {
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [homeMsg, setHomeMsg] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState<"pdf" | "pptx" | null>(null);
-  /** معالج الإعداد: 0 فريق، 1 منشأة، 2 بريد، 3 بنود ثم بدء الجولة */
+  /** معالج الإعداد: 0 فريق، 1 منشأة، 2 بنود ثم بدء الجولة */
   const [setupWizardStep, setSetupWizardStep] = useState(persistedBoot.setupWizardStep);
+  const [showSectionGrid, setShowSectionGrid] = useState(false);
 
   const [history, setHistory] = useState<unknown[]>(() => {
     const saved = localStorage.getItem("tour_history");
@@ -435,8 +435,6 @@ export default function App() {
       : setupWizardStep === 1
         ? Boolean(data.hospital)
         : setupWizardStep === 2
-          ? true
-          : setupWizardStep === 3
             ? true
             : false;
   const canProceedStep = flowStep ? isFlowStepComplete(flowStep, data) : false;
@@ -943,11 +941,11 @@ export default function App() {
           {step === "setup" && (
             <motion.div key="setup" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
               <div className="mx-auto w-full min-w-0 max-w-full">
-                <div className="rounded-2xl border border-zinc-200/90 bg-white px-3 py-2 shadow-sm">
-                  <div className="mb-2 flex items-center justify-center gap-2">
-                    <span className="text-[10px] font-semibold tracking-wide text-zinc-500">إعداد الجولة</span>
+                <div className="rounded-2xl border border-zinc-200/90 bg-white px-4 py-3 shadow-sm">
+                  <div className="mb-3 flex items-center justify-center gap-2">
+                    <span className="text-xs font-semibold tracking-wide text-zinc-600">إعداد الجولة</span>
                     <span
-                      className="rounded-md bg-zinc-900 px-1.5 py-px text-[10px] font-bold tabular-nums text-white"
+                      className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-bold tabular-nums text-white"
                       aria-hidden
                     >
                       {Math.round(((setupWizardStep + 1) / SETUP_STEP_COUNT) * 100)}٪
@@ -965,11 +963,11 @@ export default function App() {
                         <Fragment key={meta.label}>
                           {i > 0 ? (
                             <div
-                              className={`mx-0.5 mt-3.5 h-0.5 min-w-[0.5rem] flex-1 max-w-[1.25rem] rounded-full sm:min-w-[0.75rem] sm:max-w-[2.75rem] md:max-w-none ${setupWizardStep >= i ? "bg-zinc-900" : "bg-zinc-200"}`}
+                              className={`mx-1 mt-3.5 h-0.5 w-8 rounded-full sm:w-12 md:w-20 ${setupWizardStep >= i ? "bg-zinc-900" : "bg-zinc-200"}`}
                               aria-hidden
                             />
                           ) : null}
-                          <div className="flex w-[2.75rem] shrink-0 flex-col items-center gap-1.5 sm:w-[3.75rem] sm:gap-2 md:w-[4.25rem] lg:w-[4.75rem]">
+                          <div className="flex w-16 shrink-0 flex-col items-center gap-1.5 sm:w-20 sm:gap-2">
                             <motion.span
                               initial={false}
                               animate={{ scale: current ? 1.04 : 1 }}
@@ -985,7 +983,7 @@ export default function App() {
                               {done ? <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2.5} /> : i + 1}
                             </motion.span>
                             <span
-                              className={`text-center text-[9px] font-semibold leading-snug ${
+                              className={`text-center text-[11px] font-semibold leading-snug ${
                                 current ? "text-zinc-900" : done ? "text-zinc-600" : "text-zinc-400"
                               }`}
                             >
@@ -995,21 +993,6 @@ export default function App() {
                         </Fragment>
                       );
                     })}
-                  </div>
-                  <div
-                    className="mt-2 h-1 overflow-hidden rounded-full bg-zinc-100"
-                    role="progressbar"
-                    aria-valuenow={setupWizardStep + 1}
-                    aria-valuemin={1}
-                    aria-valuemax={SETUP_STEP_COUNT}
-                    aria-valuetext={`${setupWizardStep + 1} من ${SETUP_STEP_COUNT}`}
-                  >
-                    <motion.div
-                      className="h-full rounded-full bg-zinc-900"
-                      initial={false}
-                      animate={{ width: `${((setupWizardStep + 1) / SETUP_STEP_COUNT) * 100}%` }}
-                      transition={{ type: "spring", stiffness: 320, damping: 32 }}
-                    />
                   </div>
                 </div>
               </div>
@@ -1081,33 +1064,6 @@ export default function App() {
 
               {setupWizardStep === 2 && (
                 <section className="rounded-xl border border-zinc-200 bg-white p-4">
-                  <h2 className="mb-1 text-sm font-semibold">البريد الإلكتروني (اختياري)</h2>
-                  <p className="mb-4 text-[11px] leading-relaxed text-zinc-500">
-                    يُحفظ العنوان مع الجولة ويظهر في صفحة التقرير.{" "}
-                    <span className="font-semibold text-zinc-700">
-                      التطبيق لا يرسل بريداً تلقائياً ولا يُرفق ملف PowerPoint.
-                    </span>{" "}
-                    لإرسال التقرير بالبريد: بعد الانتهاء استخدم «PowerPoint» للتنزيل، ثم أرفق الملف يدوياً من مجلد التنزيلات. يمكنك أيضاً فتح مسودة بريد بنص ملخّص من صفحة التقرير (بدون مرفق).
-                  </p>
-                  <label className="block max-w-md">
-                    <span className="mb-1 block text-[11px] font-semibold text-zinc-600">عنوان البريد (اختياري)</span>
-                    <div className="relative">
-                      <Mail className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                      <input
-                        type="email"
-                        dir="ltr"
-                        value={data.email ?? ""}
-                        onChange={(e) => setData((prev) => ({ ...prev, email: e.target.value.trim() }))}
-                        placeholder="name@example.com"
-                        className="w-full rounded-lg border border-zinc-200 bg-white py-2 pr-8 pl-2 text-xs outline-none focus:border-zinc-900"
-                      />
-                    </div>
-                  </label>
-                </section>
-              )}
-
-              {setupWizardStep === 3 && (
-                <section className="rounded-xl border border-zinc-200 bg-white p-4">
                   <h2 className="mb-1 text-sm font-semibold">بنود التقييم</h2>
                   <p className="mb-3 text-[11px] text-zinc-500">ألغِ تحديد ما لا يخص هذه الزيارة</p>
                   <div className="space-y-3">
@@ -1151,7 +1107,12 @@ export default function App() {
                                     >
                                       {included ? <CheckCircle2 className="h-3 w-3" /> : null}
                                     </span>
-                                    <span className={included ? "text-zinc-900" : "text-zinc-400 line-through"}>{q.text}</span>
+                                    <span
+                                      dir="auto"
+                                      className={`${included ? "text-zinc-900" : "text-zinc-400 line-through"} inline-block w-full leading-relaxed [unicode-bidi:plaintext] break-words`}
+                                    >
+                                      {q.text}
+                                    </span>
                                   </button>
                                 </li>
                               );
@@ -1192,7 +1153,7 @@ export default function App() {
 
               <div className="rounded-xl border border-zinc-200 bg-white p-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-xs font-semibold text-zinc-700">اختر القسم</h3>
+                  <h3 className="sr-only">اختر القسم</h3>
                   {currentSectionIndex >= 0 ? (
                     <span className="text-[11px] text-zinc-500">
                       الحالي: {currentSectionIndex + 1}/{activeSections.length}
@@ -1216,7 +1177,15 @@ export default function App() {
                     </option>
                   ))}
                 </select>
-                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSectionGrid((v) => !v)}
+                  className="mt-2 rounded-md border border-zinc-200 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-600 hover:bg-zinc-50"
+                  aria-expanded={showSectionGrid}
+                >
+                  {showSectionGrid ? "إخفاء شبكة الأقسام" : "إظهار شبكة الأقسام"}
+                </button>
+                <div className={`mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 ${showSectionGrid ? "" : "hidden"}`}>
                   {activeSectionSummaries.map((row) => (
                     <button
                       key={row.section.id}
@@ -1263,7 +1232,10 @@ export default function App() {
                 >
                   {flowStep.kind === "question" ? (
                     <div className="flex min-h-[48dvh] flex-col rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm sm:min-h-[52dvh] sm:p-9">
-                      <p className="text-pretty text-2xl font-semibold leading-[1.45] text-zinc-900 sm:text-3xl sm:leading-[1.4]">
+                      <p
+                        dir="auto"
+                        className="text-pretty text-2xl font-semibold leading-[1.45] text-zinc-900 [unicode-bidi:plaintext] break-words sm:text-3xl sm:leading-[1.4]"
+                      >
                         {flowStep.question.text}
                       </p>
                       <p className="mt-4 text-sm text-zinc-500">اختر الإجابة</p>
@@ -1477,35 +1449,6 @@ export default function App() {
                   })}
                 </div>
 
-                {data.email ? (
-                  <div data-pdf-chunk className="mb-8">
-                    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 sm:max-w-md">
-                      <p className="text-[11px] text-zinc-600">البريد المرتبط بهذه الجولة</p>
-                      <p className="mt-1 text-sm font-semibold text-zinc-900" dir="ltr">
-                        {data.email}
-                      </p>
-                      <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
-                        «فتح البريد» يُنشئ رسالة نصية فقط (لا مرفقات). لإرسال PowerPoint: نزّل الملف أعلاه ثم أرفقه من تطبيق البريد.
-                      </p>
-                      <a
-                        href={`mailto:${data.email}?subject=${encodeURIComponent(`تقرير جولة تفتيشية - ${data.hospital}`)}&body=${encodeURIComponent(
-                          `نتيجة الجولة الحالية: ${totalScoreInfo.percentage}%\nالتاريخ: ${data.date}\nالمنشأة: ${data.hospital}\n\n(أرفق ملف PowerPoint بعد تنزيله من التطبيق)`,
-                        )}`}
-                        className="mt-2 inline-flex rounded-md border border-zinc-300 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700"
-                      >
-                        فتح البريد (ملخص نصي)
-                      </a>
-                      <button
-                        type="button"
-                        onClick={downloadPptxAndPrepareDraftEmail}
-                        className="mt-2 mr-2 inline-flex rounded-md border border-zinc-300 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700"
-                      >
-                        إرسال PPT للمستلمين المعتمدين
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-
                 <div className="space-y-10">
                   {activeSections.map((section) => {
                     const { earned, total, percentage } = calculateSectionMetrics(section.id, data);
@@ -1524,18 +1467,20 @@ export default function App() {
                           </div>
                         </div>
                         <div className="overflow-x-auto rounded-lg border border-zinc-100">
-                          <table className="w-full min-w-[520px] text-sm">
+                          <table className="w-full min-w-[520px] table-fixed text-sm">
                             <thead>
                               <tr className="border-b border-zinc-100 bg-zinc-50 text-left text-[10px] font-semibold uppercase text-zinc-500">
-                                <th className="p-3 text-right">البند</th>
+                                <th className="w-[58%] p-3 text-right">البند</th>
                                 <th className="w-20 p-3 text-center">التقييم</th>
-                                <th className="p-3 text-right">ملاحظات</th>
+                                <th className="w-[32%] p-3 text-right">ملاحظات</th>
                               </tr>
                             </thead>
                             <tbody>
                               {section.questions.map((q) => (
                                 <tr key={q.id} className="border-b border-zinc-50">
-                                  <td className="p-3 text-zinc-800">{q.text}</td>
+                                  <td dir="auto" className="p-3 leading-relaxed text-zinc-800 [unicode-bidi:plaintext] break-words">
+                                    {q.text}
+                                  </td>
                                   <td className="p-3 text-center">
                                     <span
                                       className={`inline-block rounded-md px-2 py-0.5 text-[10px] font-semibold ${
@@ -1549,7 +1494,7 @@ export default function App() {
                                       {scoreLabel(q.id)}
                                     </span>
                                   </td>
-                                  <td className="p-3 text-xs text-zinc-500">{data.itemNotes[q.id] || "—"}</td>
+                                  <td className="p-3 text-xs leading-relaxed text-zinc-500 break-words">{data.itemNotes[q.id] || "—"}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -1653,7 +1598,12 @@ export default function App() {
                                 {item.globalIndex} / {item.totalQuestions}
                               </span>
                             </div>
-                            <p className="text-balance text-xl font-semibold leading-relaxed sm:text-2xl">{item.question.text}</p>
+                            <p
+                              dir="auto"
+                              className="text-balance text-xl font-semibold leading-relaxed [unicode-bidi:plaintext] break-words sm:text-2xl"
+                            >
+                              {item.question.text}
+                            </p>
                             <div className="mt-8 flex flex-wrap items-center gap-3">
                               <span
                                 className={`inline-flex items-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-bold shadow-lg ${
@@ -1730,7 +1680,7 @@ export default function App() {
                 السابق
               </button>
             ) : null}
-            {setupWizardStep < 3 ? (
+            {setupWizardStep < 2 ? (
               <button
                 type="button"
                 disabled={!canSetupNext}

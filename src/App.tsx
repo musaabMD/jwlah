@@ -41,6 +41,7 @@ import {
 import { MHC_LOGO_PATH } from "./branding";
 import { downloadInspectionPptx } from "./export-pptx";
 import { downloadReportMakerPptx } from "./export-report-maker-pptx";
+import { ReportMakerPptSlideReview } from "./ReportMakerPptSlideReview";
 import { downloadInspectionReportPdf, printInspectionReport } from "./pdf-export";
 import {
   REPORT_MAKER_STORAGE_KEY,
@@ -2405,14 +2406,14 @@ export default function App() {
             onClick={closeReportMakerPptReview}
             aria-label="إغلاق المراجعة"
           />
-          <div className="relative flex min-h-0 max-h-[min(92dvh,880px)] w-full max-w-2xl flex-col rounded-t-2xl border border-zinc-200 bg-white shadow-2xl sm:max-h-[85dvh] sm:rounded-2xl">
+          <div className="relative flex min-h-0 max-h-[min(92dvh,920px)] w-full max-w-4xl flex-col rounded-t-2xl border border-zinc-200 bg-white shadow-2xl sm:max-h-[90dvh] sm:rounded-2xl">
             <div className="flex shrink-0 items-start justify-between gap-3 border-b border-zinc-100 px-4 py-3 sm:px-5">
               <div>
                 <h2 id="rm-ppt-review-title" className="text-base font-bold text-zinc-900">
                   مراجعة التقرير قبل التصدير
                 </h2>
                 <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
-                  عدّل العنوان والبنود والملاحظات، ثم أكّد التنزيل. يُصدَّر الملف بفقرات RTL ويمكن تحريره لاحقاً في PowerPoint.
+                  معاينة شرائح PowerPoint — انتقل بين الشرائح وعدّل المحتوى أسفل كل معاينة، ثم أكّد التنزيل.
                 </p>
                 <p className="mt-2 text-[11px] font-semibold tabular-nums text-emerald-800">
                   التقييم التلقائي: {reportMakerScore.total === 0 ? "—" : `${reportMakerScore.percentage}٪ (${reportMakerScore.checked}/${reportMakerScore.total})`}
@@ -2428,140 +2429,7 @@ export default function App() {
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5">
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-[11px] font-semibold text-zinc-600">عنوان التقرير</label>
-                  <input
-                    type="text"
-                    value={reportMakerData.title}
-                    onChange={(e) => setReportMakerData((p) => ({ ...p, title: e.target.value }))}
-                    className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/15"
-                  />
-                </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-zinc-600">المنشأة</label>
-                    <select
-                      value={reportMakerData.facility}
-                      onChange={(e) => setReportMakerData((p) => ({ ...p, facility: e.target.value }))}
-                      className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/15"
-                    >
-                      <option value="">— اختر من القائمة —</option>
-                      {HOSPITALS.map((name) => (
-                        <option key={name} value={name}>
-                          {name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-zinc-600">التاريخ</label>
-                    <input
-                      type="date"
-                      value={reportMakerData.date}
-                      onChange={(e) => setReportMakerData((p) => ({ ...p, date: e.target.value }))}
-                      className="mt-1 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/15"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-zinc-600">أسماء المكلفين (اختياري)</label>
-                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {INSPECTORS.map((inspector) => {
-                      const on = reportMakerData.inspectors.includes(inspector.name);
-                      return (
-                        <button
-                          key={`rm-modal-insp-${inspector.id}`}
-                          type="button"
-                          onClick={() =>
-                            setReportMakerData((prev) => ({
-                              ...prev,
-                              inspectors: on
-                                ? prev.inspectors.filter((n) => n !== inspector.name)
-                                : [...prev.inspectors, inspector.name],
-                            }))
-                          }
-                          className={`flex items-center justify-between rounded-lg border px-2.5 py-2 text-left text-xs transition-colors ${
-                            on
-                              ? "border-2 border-zinc-900 bg-zinc-50 text-zinc-900"
-                              : "border border-zinc-200 bg-white text-zinc-800"
-                          }`}
-                        >
-                          <span>{inspector.name}</span>
-                          {on ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-zinc-900" /> : <span className="h-3.5 w-3.5 shrink-0 rounded-full border border-zinc-300" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[11px] font-semibold text-zinc-600">بنود الفحص (مراجعة قبل التصدير)</label>
-                  <div className="mt-2 max-h-[40dvh] space-y-4 overflow-y-auto pe-0.5">
-                    {SECTIONS.map((sec) => (
-                      <div key={`rm-modal-${sec.id}`} className="rounded-lg border border-zinc-100 bg-zinc-50/60 p-2">
-                        <p className="mb-2 text-[10px] font-bold text-zinc-600">{sec.title}</p>
-                        <ul className="space-y-2">
-                          {sec.questions.map((q) => {
-                            const it = reportMakerItemById.get(q.id);
-                            if (!it) return null;
-                            return (
-                              <li key={q.id} className="flex gap-2 rounded-md border border-zinc-100 bg-white p-2">
-                                <input
-                                  type="checkbox"
-                                  checked={it.checked}
-                                  onChange={(e) =>
-                                    setReportMakerData((p) => ({
-                                      ...p,
-                                      items: p.items.map((row) =>
-                                        row.id === it.id ? { ...row, checked: e.target.checked } : row,
-                                      ),
-                                    }))
-                                  }
-                                  className="mt-1.5 h-4 w-4 shrink-0 rounded border-zinc-300 text-zinc-900"
-                                  aria-label="تم"
-                                />
-                                <div className="min-w-0 flex-1 space-y-1.5">
-                                  <p dir="auto" className="text-left text-xs font-medium leading-snug text-zinc-900 sm:text-right [unicode-bidi:plaintext]">
-                                    {it.text}
-                                  </p>
-                                  <textarea
-                                    dir="auto"
-                                    value={it.note}
-                                    onChange={(e) =>
-                                      setReportMakerData((p) => ({
-                                        ...p,
-                                        items: p.items.map((row) =>
-                                          row.id === it.id ? { ...row, note: e.target.value } : row,
-                                        ),
-                                      }))
-                                    }
-                                    rows={2}
-                                    placeholder="ملاحظة البند…"
-                                    className="w-full resize-y rounded border border-zinc-200 bg-zinc-50/50 px-2 py-1 text-[11px] outline-none focus:ring-2 focus:ring-zinc-900/10 [unicode-bidi:plaintext]"
-                                  />
-                                </div>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-zinc-600">ملاحظات عامة</label>
-                  <textarea
-                    value={reportMakerData.notes}
-                    onChange={(e) => setReportMakerData((p) => ({ ...p, notes: e.target.value }))}
-                    rows={3}
-                    className="mt-1 w-full resize-y rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/15"
-                  />
-                </div>
-                <p className="text-[11px] text-zinc-500">
-                  صور عامة: {reportMakerData.images.length} · صور على البنود:{" "}
-                  {reportMakerData.items.reduce((n, row) => n + row.images.length, 0)} — لإضافة أو حذف صور أغلق النافذة وعدّل من الصفحة.
-                </p>
-              </div>
+              <ReportMakerPptSlideReview data={reportMakerData} setData={setReportMakerData} />
             </div>
 
             <div className="flex shrink-0 flex-col gap-2 border-t border-zinc-100 bg-white px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end sm:px-5">

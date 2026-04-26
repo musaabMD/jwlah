@@ -1,19 +1,11 @@
-import React, { useMemo, useState, useEffect, ChangeEvent, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useRef, ChangeEvent, useCallback } from "react";
 import { CheckCircle2, ImagePlus } from "lucide-react";
-import { INSPECTORS, HOSPITALS } from "./constants";
+import { INSPECTORS, HOSPITALS, SECTIONS } from "./constants";
 import { ReportMakerChecklistSteps } from "./ReportMakerChecklistSteps";
-import { MHC_LOGO_PATH } from "./branding";
+import { REPORT_MAKER_TOUR_CLOSING_BG_PATH } from "./branding";
+import { ReportMakerTourCoverHero } from "./ReportMakerTourCoverHero";
 import type { ReportMakerData } from "./report-maker-types";
-import { calculateReportMakerScore } from "./report-maker-types";
 import { buildReportMakerPptSlides, countReportMakerPptExportSlides, type ReportMakerPptSlide } from "./report-maker-slide-plan";
-
-function gregorianSlashFromIso(iso: string): string {
-  if (!iso?.trim()) return "—";
-  const day = iso.split("T")[0];
-  const p = day.split("-");
-  if (p.length !== 3) return iso;
-  return `${p[0]}/${p[1]}/${p[2]}`;
-}
 
 function truncatePreview(s: string, max: number): string {
   const t = s.trim();
@@ -24,21 +16,40 @@ function truncatePreview(s: string, max: number): string {
 type Props = {
   data: ReportMakerData;
   setData: React.Dispatch<React.SetStateAction<ReportMakerData>>;
+  /** عند فتح النافذة من الصفحة الرئيسية: اختيار شريحة أولية مرة واحدة. */
+  initialSlideId?: string;
+  /** "page" = ملء ارتفاع شاشة المراجعة الكاملة (ليس داخل نافذة منبثقة). */
+  layout?: "default" | "page";
 };
 
-export function ReportMakerPptSlideReview({ data, setData }: Props) {
+export function ReportMakerPptSlideReview({ data, setData, initialSlideId, layout = "default" }: Props) {
+  const isPage = layout === "page";
   const slides = useMemo(() => buildReportMakerPptSlides(data), [data]);
   const itemById = useMemo(() => new Map(data.items.map((it) => [it.id, it] as const)), [data.items]);
-  const score = useMemo(() => calculateReportMakerScore(data), [data]);
   const exportSlideCount = useMemo(() => countReportMakerPptExportSlides(data), [data]);
 
   const [selectedSlideId, setSelectedSlideId] = useState("");
+  const appliedInitialSlideRef = useRef(false);
+
+  useEffect(() => {
+    appliedInitialSlideRef.current = false;
+  }, [initialSlideId]);
+
   useEffect(() => {
     if (slides.length === 0) return;
+    if (
+      !appliedInitialSlideRef.current &&
+      initialSlideId &&
+      slides.some((s) => s.id === initialSlideId)
+    ) {
+      setSelectedSlideId(initialSlideId);
+      appliedInitialSlideRef.current = true;
+      return;
+    }
     if (!selectedSlideId || !slides.some((s) => s.id === selectedSlideId)) {
       setSelectedSlideId(slides[0].id);
     }
-  }, [slides, selectedSlideId]);
+  }, [slides, selectedSlideId, initialSlideId]);
 
   const activeSlide = useMemo(
     () => slides.find((s) => s.id === selectedSlideId) ?? slides[0] ?? null,
@@ -110,7 +121,7 @@ export function ReportMakerPptSlideReview({ data, setData }: Props) {
       case "cover":
         return (
           <div className="space-y-3">
-            <label className="block text-[11px] font-semibold text-zinc-600">عنوان التقرير</label>
+            <label className="block text-[11px] font-semibold text-zinc-600">تسمية الملف / عنوان المستند</label>
             <input
               type="text"
               value={data.title}
@@ -180,16 +191,18 @@ export function ReportMakerPptSlideReview({ data, setData }: Props) {
           </div>
         );
 
-      case "checklist":
-        return (
+      case "section_intro":
+      case "section_table":
+        return slide.sectionId ? (
           <ReportMakerChecklistSteps
             compact
+            onlySectionId={slide.sectionId}
             data={data}
             setData={setData}
             onItemImageUpload={onItemImagesAppend}
             onRemoveItemImage={onRemoveItemImage}
           />
-        );
+        ) : null;
 
       case "notes":
         return (
@@ -275,7 +288,11 @@ export function ReportMakerPptSlideReview({ data, setData }: Props) {
       }
 
       case "closing":
-        return <p className="text-[12px] text-zinc-600">شريحة ثابتة (شكراً وتجمع المدينة المنورة الصحي). لا تحتاج تعديلاً هنا.</p>;
+        return (
+          <p className="text-[12px] text-zinc-600">
+            شريحة الختام تستخدم خلفية التجمع مع نص «شكراً» و«تجمع المدينة المنورة الصحي». لا تعديل مطلوب هنا.
+          </p>
+        );
 
       default:
         return null;
@@ -284,7 +301,14 @@ export function ReportMakerPptSlideReview({ data, setData }: Props) {
 
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3" dir="rtl">
+    <div
+      className={
+        isPage
+          ? "flex h-full min-h-0 min-w-0 flex-1 flex-col gap-2"
+          : "flex min-h-0 flex-1 flex-col gap-3"
+      }
+      dir="rtl"
+    >
       <p className="shrink-0 text-[11px] leading-relaxed text-zinc-500">
         اختر شريحة من القائمة الجانبية — تظهر المعاينة والتعديل في اللوحة الرئيسية. الشرائح التي لن تُصدَّر (مثل الملاحظات الفارغة) موضّحة في البطاقة.
         <span className="mt-1 block font-semibold tabular-nums text-zinc-700">
@@ -292,8 +316,20 @@ export function ReportMakerPptSlideReview({ data, setData }: Props) {
         </span>
       </p>
 
-      <div className="flex min-h-[280px] flex-1 flex-col gap-3 sm:min-h-[360px] sm:flex-row sm:gap-4">
-        <aside className="flex max-h-40 shrink-0 flex-col gap-1 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50/90 sm:max-h-none sm:w-52 sm:border-s sm:ps-2">
+      <div
+        className={
+          isPage
+            ? "flex min-h-[200px] flex-1 flex-col gap-3 sm:min-h-0 sm:flex-row sm:gap-4"
+            : "flex min-h-[280px] flex-1 flex-col gap-3 sm:min-h-[360px] sm:flex-row sm:gap-4"
+        }
+      >
+        <aside
+          className={
+            isPage
+              ? "flex max-h-40 shrink-0 flex-col gap-1 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50/90 sm:max-h-none sm:w-60 sm:shrink-0 sm:border-s sm:ps-2 lg:w-64"
+              : "flex max-h-40 shrink-0 flex-col gap-1 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50/90 sm:max-h-none sm:w-52 sm:border-s sm:ps-2"
+          }
+        >
           <p className="shrink-0 px-2 pt-2 text-[10px] font-bold uppercase tracking-wide text-zinc-500">الشرائح</p>
           <div className="flex flex-row gap-1 overflow-x-auto px-2 pb-2 sm:flex-col sm:overflow-y-auto sm:px-1 sm:pb-2">
             {slides.map((s) => {
@@ -316,25 +352,33 @@ export function ReportMakerPptSlideReview({ data, setData }: Props) {
           </div>
         </aside>
 
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-3 shadow-sm sm:p-4">
+        <main
+          className={
+            isPage
+              ? "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain rounded-xl border border-zinc-200 bg-white p-3 shadow-sm sm:p-4"
+              : "min-h-0 min-w-0 flex-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-3 shadow-sm sm:p-4"
+          }
+        >
           {activeSlide ? (
-            <>
-              <header className="mb-3 flex flex-wrap items-baseline justify-between gap-2 border-b border-zinc-100 pb-2">
+            <div className="flex min-h-0 flex-col gap-3">
+              <header className="shrink-0 flex flex-wrap items-baseline justify-between gap-2 border-b border-zinc-100 pb-2">
                 <h3 className="text-sm font-bold text-zinc-900">
                   الشريحة {activeSlide.n}: {activeSlide.labelAr}
                 </h3>
                 <span className="text-[10px] font-medium text-zinc-400">معاينة 16:9</span>
               </header>
-              <SlideVisual slide={activeSlide} data={data} itemById={itemById} score={score} />
-              <div className="mt-4 border-t border-zinc-100 pt-4">{renderEditor(activeSlide)}</div>
-            </>
+              <div className="w-full shrink-0">
+                <SlideVisual slide={activeSlide} data={data} itemById={itemById} />
+              </div>
+              <div className="min-h-0 shrink-0 border-t border-zinc-100 pt-4">{renderEditor(activeSlide)}</div>
+            </div>
           ) : (
             <p className="text-sm text-zinc-500">لا شرائح للعرض.</p>
           )}
         </main>
       </div>
 
-      <p className="shrink-0 text-[11px] text-zinc-500">
+      <p className={`shrink-0 text-[11px] text-zinc-500 ${isPage ? "max-sm:line-clamp-2" : ""}`}>
         صور المرفقات العامة والبنود: تعديل من لوحة الشريحة الحالية أو من الصفحة الرئيسية لصانع التقرير.
       </p>
     </div>
@@ -345,59 +389,163 @@ function SlideVisual({
   slide,
   data,
   itemById,
-  score,
 }: {
   slide: ReportMakerPptSlide;
   data: ReportMakerData;
   itemById: Map<string, { text: string; note: string; images: string[] }>;
-  score: { checked: number; total: number; percentage: number };
 }) {
-  const frame = "relative aspect-video w-full overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 shadow-inner";
+  /** إطار 16:9 — ارتفاع يُشتق من العرض؛ `min-h` احتياطي داخل الحاويات المرنة. */
+  const frame =
+    "relative flex aspect-video min-h-[220px] w-full max-w-full flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-inner sm:min-h-[260px]";
 
   switch (slide.kind) {
     case "cover":
+      return <ReportMakerTourCoverHero data={data} />;
+
+    case "section_intro": {
+      const sec = SECTIONS.find((s) => s.id === slide.sectionId);
+      if (!sec) {
+        return (
+          <div className={`${frame} bg-[#111827] p-3`}>
+            <p className="text-xs text-red-300">قسم غير معروف.</p>
+          </div>
+        );
+      }
+      const map = new Map(data.items.map((it) => [it.id, it] as const));
+      let secChecked = 0;
+      let secTotal = 0;
+      for (const q of sec.questions) {
+        const it = map.get(q.id);
+        if (!it) continue;
+        secTotal += 1;
+        if (it.checked) secChecked += 1;
+      }
+      const secPct = secTotal === 0 ? 0 : Math.round((secChecked / secTotal) * 100);
+      const dateDisp = data.date?.split("T")[0] ?? "—";
+      const fac = data.facility?.trim() || "—";
+
       return (
-        <div className={`${frame} bg-[#1a3a5c]`}>
-          <img src={MHC_LOGO_PATH} alt="" className="absolute end-3 top-2 h-8 w-auto object-contain opacity-90" />
-          <div className="flex h-full flex-col items-center justify-center px-4 pb-6 pt-10 text-center">
-            <p className="line-clamp-3 text-lg font-bold leading-tight text-white sm:text-xl">{truncatePreview(data.title, 120)}</p>
-            <div className="mt-3 space-y-0.5 text-[10px] font-semibold leading-relaxed text-slate-200 sm:text-[11px]">
-              {data.facility?.trim() ? <p>المنشأة: {truncatePreview(data.facility, 40)}</p> : null}
-              {data.inspectors.length ? <p>المكلفون: {truncatePreview(data.inspectors.join("، "), 80)}</p> : null}
-              <p>التاريخ: {gregorianSlashFromIso(data.date)}م</p>
-              <p>
-                الإنجاز: {score.total === 0 ? "—" : `${score.checked} / ${score.total}  (${score.percentage}٪)`}
+        <div className={`${frame} !bg-[#111827]`} dir="rtl">
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-6 text-center">
+              <p className="mb-2 text-[10px] font-medium text-slate-400 sm:text-xs">قسم التقييم</p>
+              <p className="line-clamp-5 max-w-[95%] text-base font-bold leading-snug text-white sm:text-lg">
+                {sec.title}
+              </p>
+              <p className="mt-3 max-w-[95%] text-sm font-semibold leading-snug text-slate-200 sm:text-base">
+                {secTotal > 0
+                  ? `نتيجة القسم: ${secChecked} / ${secTotal} • ${secPct}٪`
+                  : "نتيجة القسم: لا توجد بنود في هذا القسم"}
               </p>
             </div>
+            <p className="shrink-0 px-4 pb-3 text-center text-[10px] text-slate-500 sm:text-[11px]">
+              {dateDisp} • {truncatePreview(fac, 48)}
+            </p>
           </div>
         </div>
       );
+    }
 
-    case "checklist":
+    case "section_table": {
+      const sec = SECTIONS.find((s) => s.id === slide.sectionId);
+      if (!sec) {
+        return (
+          <div className={`${frame} bg-white p-3`}>
+            <p className="text-xs text-red-600">قسم غير معروف.</p>
+          </div>
+        );
+      }
+      const map = new Map(data.items.map((it) => [it.id, it] as const));
+      let secChecked = 0;
+      let secTotal = 0;
+      const rows: { text: string; note: string; checked: boolean }[] = [];
+      for (const q of sec.questions) {
+        const it = map.get(q.id);
+        if (!it) continue;
+        secTotal += 1;
+        if (it.checked) secChecked += 1;
+        rows.push({ text: it.text, note: it.note, checked: it.checked });
+      }
+      const secPct = secTotal === 0 ? 0 : Math.round((secChecked / secTotal) * 100);
+      const dateDisp = data.date?.split("T")[0] ?? "—";
+      const fac = data.facility?.trim() || "—";
+      const showRows = rows.slice(0, 8);
+
       return (
-        <div className={frame}>
-          <div className="absolute inset-x-0 top-0 h-2 bg-[#0f172a]" />
-          <div className="flex h-full flex-col p-2 pt-4">
-            <p className="text-end text-[9px] font-bold text-[#0f172a]">قائمة التحقق والتقييم التلقائي</p>
-            <p className="text-end text-[8px] text-zinc-500">
-              {score.total > 0 ? `${score.checked} من ${score.total} مكتمل` : "—"}
-            </p>
-            <div className="mt-1 flex-1 rounded border border-zinc-200 bg-white/90 p-1">
-              <div className="h-full overflow-hidden rounded bg-zinc-50/80">
-                <p className="p-1 text-[7px] leading-tight text-zinc-400">جدول البنود والملاحظات…</p>
+        <div className={`${frame} bg-white`}>
+          <div className="h-2 shrink-0 bg-[#111c2c]" />
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2.5 text-end sm:p-3">
+            <h4 className="shrink-0 text-[13px] font-bold leading-snug text-[#111c2c] sm:text-sm">
+              جدول البنود — {truncatePreview(sec.title, 72)}
+            </h4>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 shadow-sm">
+              <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_3.5rem_28%] gap-0 bg-[#111c2c] px-0.5 text-[11px] font-bold leading-tight text-white sm:text-xs">
+                <span className="px-2 py-2.5">البند</span>
+                <span className="flex items-center justify-center border-s border-white/25 py-2.5">التقييم</span>
+                <span className="border-s border-white/25 px-2 py-2.5">ملاحظة</span>
+              </div>
+              <div className="shrink-0 bg-[#f0f0f0] px-2 py-2.5 text-[11px] font-bold leading-snug text-zinc-900 sm:text-xs">
+                <span className="line-clamp-3">
+                  {truncatePreview(sec.title, 56)} — نتيجة القسم: {secChecked}/{secTotal} • {secPct}٪
+                </span>
+              </div>
+              <div className="min-h-0 flex-1 divide-y divide-zinc-200 overflow-y-auto overscroll-contain bg-white">
+                {rows.length === 0 ? (
+                  <p className="p-4 text-center text-xs leading-relaxed text-zinc-600 sm:text-sm">
+                    لا توجد بنود مرتبطة بهذا القسم في البيانات (تأكد من مزامنة قائمة البنود).
+                  </p>
+                ) : (
+                  <>
+                    {showRows.map((r, i) => (
+                      <div
+                        key={i}
+                        className="grid grid-cols-[minmax(0,1fr)_3.5rem_28%] gap-0 text-[11px] leading-snug sm:text-xs"
+                      >
+                        <span
+                          className="line-clamp-4 px-2 py-2 text-start text-zinc-800 [unicode-bidi:plaintext] sm:line-clamp-5 sm:text-[13px] sm:leading-snug"
+                          dir="auto"
+                        >
+                          {r.text}
+                        </span>
+                        <span
+                          className={`flex items-center justify-center border-s border-zinc-100 py-2 text-center text-[12px] font-bold sm:text-sm ${
+                            r.checked ? "text-green-600" : "text-red-600"
+                          }`}
+                        >
+                          {r.checked ? "نعم" : "لا"}
+                        </span>
+                        <span
+                          className="line-clamp-4 border-s border-zinc-100 px-2 py-2 text-start text-zinc-600 [unicode-bidi:plaintext] sm:text-[12px] sm:leading-snug"
+                          dir="auto"
+                        >
+                          {r.note.trim() ? r.note : "—"}
+                        </span>
+                      </div>
+                    ))}
+                    {rows.length > showRows.length ? (
+                      <p className="bg-zinc-50 px-2 py-2.5 text-center text-xs font-medium text-zinc-500 sm:text-sm">
+                        +{rows.length - showRows.length} بندًا إضافيًا في ملف PowerPoint
+                      </p>
+                    ) : null}
+                  </>
+                )}
               </div>
             </div>
+            <p className="shrink-0 text-end text-xs text-zinc-500 sm:text-sm">
+              {secPct}٪ • {dateDisp} • {truncatePreview(fac, 36)}
+            </p>
           </div>
         </div>
       );
+    }
 
     case "notes":
       return (
-        <div className={frame}>
+        <div className={`${frame} bg-white`}>
           <div className="absolute inset-x-0 top-0 h-2 bg-[#0f172a]" />
-          <div className="flex h-full flex-col bg-[#fafafa] p-3 pt-5">
-            <p className="text-end text-[10px] font-bold text-zinc-900">ملاحظات</p>
-            <p className="mt-1 line-clamp-[8] whitespace-pre-wrap text-end text-[8px] leading-snug text-zinc-600">
+          <div className="flex h-full min-h-0 flex-col bg-[#fafafa] p-3 pt-5">
+            <p className="shrink-0 text-end text-xs font-bold text-zinc-900 sm:text-sm">ملاحظات</p>
+            <p className="mt-2 min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap text-end text-xs leading-relaxed text-zinc-600 sm:text-sm">
               {data.notes.trim() ? truncatePreview(data.notes, 400) : "— فارغ — لن تُصدَّر الشريحة"}
             </p>
           </div>
@@ -408,7 +556,7 @@ function SlideVisual({
       const it = itemById.get(slide.itemId!);
       const src = it?.images[slide.imageIndex!];
       return (
-        <div className={frame}>
+        <div className={`${frame} bg-zinc-100`}>
           <div className="absolute inset-x-0 top-0 h-2 bg-[#0f172a]" />
           <div className="flex h-full flex-col bg-[#f4f4f5] p-2 pt-4">
             <p dir="auto" className="line-clamp-2 text-start text-[9px] font-bold text-[#0f172a] sm:text-end">
@@ -429,7 +577,7 @@ function SlideVisual({
     case "annex_photo": {
       const src = data.images[slide.imageIndex!];
       return (
-        <div className={frame}>
+        <div className={`${frame} bg-zinc-100`}>
           <div className="absolute inset-x-0 top-0 h-2 bg-[#0f172a]" />
           <div className="flex h-full flex-col bg-[#f4f4f5] p-2 pt-4">
             <p className="text-end text-[9px] font-bold text-[#0f172a]">صورة {slide.imageIndex! + 1}</p>
@@ -447,10 +595,20 @@ function SlideVisual({
 
     case "closing":
       return (
-        <div className={`${frame} bg-[#1e3a5f]`}>
-          <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-            <p className="text-xl font-bold text-white sm:text-2xl">شكراً</p>
-            <p className="mt-2 text-[10px] text-slate-200">تجمع المدينة المنورة الصحي</p>
+        <div className={`${frame} relative overflow-hidden`}>
+          <img
+            src={REPORT_MAKER_TOUR_CLOSING_BG_PATH}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+            referrerPolicy="no-referrer"
+          />
+          <div className="absolute inset-0 flex items-center justify-center p-3 sm:p-5">
+            <div className="rounded-xl border border-white/15 bg-black/45 px-5 py-3 shadow-lg backdrop-blur-[2px] sm:px-8 sm:py-4">
+              <p className="text-center text-lg font-bold text-white sm:text-xl">شكراً</p>
+              <p className="mt-1.5 text-center text-[10px] font-semibold leading-snug text-white/95 sm:text-[11px]">
+                تجمع المدينة المنورة الصحي
+              </p>
+            </div>
           </div>
         </div>
       );

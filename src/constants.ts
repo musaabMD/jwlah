@@ -31,38 +31,74 @@ export const HOSPITALS = [
 export const SECTIONS: InspectionSection[] = [
   {
     id: "ipc_bundle_compliance_audit",
-    title: "IPC Bundle Compliance Audit (Improved + Auto-Scoring)",
+    title: "تدقيق امتثال حزمة مكافحة العدوى (محسّن + تقييم تلقائي)",
     questions: [
-      { id: "ipc_vae_1", text: "VAE: Is the head of bed maintained at 30–45° (unless contraindicated)?" },
-      { id: "ipc_vae_2", text: "VAE: Is there documented daily sedation interruption or readiness-to-wean assessment?" },
-      { id: "ipc_vae_3", text: "VAE: Is oral care with antiseptic (e.g., chlorhexidine) performed as per protocol?" },
+      {
+        id: "ipc_vae_1",
+        text: "عدوى الجهاز التنفسي المرتبطة بالتهوية (VAE): هل يُحافَظ على ميل سرير الرأس بين 30° و45° (ما لم توجد موانع طبية)؟",
+      },
+      {
+        id: "ipc_vae_2",
+        text: "عدوى الجهاز التنفسي المرتبطة بالتهوية (VAE): هل يوجد توثيق يومي لانقطاع التهدئة أو لتقييم الجاهزية للفطام عن التنفس الآلي؟",
+      },
+      {
+        id: "ipc_vae_3",
+        text: "عدوى الجهاز التنفسي المرتبطة بالتهوية (VAE): هل تُجرى العناية بالفم بمطهر (مثل كلورهيكسيدين) وفق البروتوكول المعتمد؟",
+      },
       {
         id: "ipc_vae_4",
-        text: "VAE: Are ventilator circuits handled using aseptic technique and not routinely changed?",
+        text: "عدوى الجهاز التنفسي المرتبطة بالتهوية (VAE): هل تُعالج دوائر جهاز التنفس بأسلوب معقم، ودون تغيير روتيني للدوائر؟",
       },
-      { id: "ipc_vae_5", text: "VAE: Is there a daily documented assessment for extubation readiness?" },
-      { id: "ipc_cauti_1", text: "CAUTI: Is there a documented appropriate indication for the catheter?" },
-      { id: "ipc_cauti_2", text: "CAUTI: Was aseptic technique used during insertion (check record or observe)?" },
-      { id: "ipc_cauti_3", text: "CAUTI: Is a closed drainage system intact with no breaks/leaks?" },
-      { id: "ipc_cauti_4", text: "CAUTI: Is the urine bag positioned below bladder level and not touching the floor?" },
-      { id: "ipc_cauti_5", text: "CAUTI: Is there a daily documented review for catheter necessity/removal?" },
+      {
+        id: "ipc_vae_5",
+        text: "عدوى الجهاز التنفسي المرتبطة بالتهوية (VAE): هل يوجد تقييم يومي موثّق لجاهزية المريض لإزالة أنبوب التنفس؟",
+      },
+      {
+        id: "ipc_cauti_1",
+        text: "عدوى المسالك البولية المرتبطة بالقسطرة (CAUTI): هل يوجد مؤشر موثّق ومناسب لبقاء القسطرة؟",
+      },
+      {
+        id: "ipc_cauti_2",
+        text: "عدوى المسالك البولية المرتبطة بالقسطرة (CAUTI): هل استُخدم أسلوب معقم أثناء الإدخال (راجع السجل أو راقب ميدانياً)؟",
+      },
+      {
+        id: "ipc_cauti_3",
+        text: "عدوى المسالك البولية المرتبطة بالقسطرة (CAUTI): هل نظام الصرف مغلق وسليم دون كسر أو تسرّب؟",
+      },
+      {
+        id: "ipc_cauti_4",
+        text: "عدوى المسالك البولية المرتبطة بالقسطرة (CAUTI): هل كيس البول أسفل مستوى المثانة وغير ملامس للأرض؟",
+      },
+      {
+        id: "ipc_cauti_5",
+        text: "عدوى المسالك البولية المرتبطة بالقسطرة (CAUTI): هل توجد مراجعة يومية موثّقة لضرورة القسطرة أو إزالتها؟",
+      },
       {
         id: "ipc_clabsi_1",
-        text: "CLABSI: Was hand hygiene performed before any line handling (observed or documented)?",
+        text: "عدوى مجرى الدم المركزي (CLABSI): هل نُفِّذت نظافة اليدين قبل أي تعامل مع المجرى (مراقبة أو توثيق)؟",
       },
       {
         id: "ipc_clabsi_2",
-        text: "CLABSI: Were maximal sterile barrier precautions used during insertion (cap, mask, gown, gloves, drape)?",
+        text: "عدوى مجرى الدم المركزي (CLABSI): هل استُخدمت أقصى احتياطات معقمة عند الإدخال (غطاء، كمامة، عباءة، قفازات، ستار)؟",
       },
-      { id: "ipc_clabsi_3", text: "CLABSI: Was chlorhexidine used for skin antisepsis at insertion site?" },
-      { id: "ipc_clabsi_4", text: "CLABSI: Is the dressing clean, dry, intact, and within change date?" },
-      { id: "ipc_clabsi_5", text: "CLABSI: Is there a daily documented review of line necessity?" },
-      { id: "ipc_optional_1", text: "Optional: Are bundle checklists completed by staff consistently?" },
+      {
+        id: "ipc_clabsi_3",
+        text: "عدوى مجرى الدم المركزي (CLABSI): هل استُخدم كلورهيكسيدين لتعقيم الجلد عند موضع إدخال المجرى؟",
+      },
+      {
+        id: "ipc_clabsi_4",
+        text: "عدوى مجرى الدم المركزي (CLABSI): هل الضمادة نظيفة وجافة ومتكاملة وضمن تاريخ التغيير؟",
+      },
+      {
+        id: "ipc_clabsi_5",
+        text: "عدوى مجرى الدم المركزي (CLABSI): هل توجد مراجعة يومية موثّقة لضرورة بقاء المجرى؟",
+      },
+      { id: "ipc_optional_1", text: "اختياري: هل تُستكمل قوائم تحقق الحزمة من الطاقم بشكل منتظم؟" },
     ],
   },
   {
     id: "triage",
-    title: "الفرز (Triage)",
+    title: "الفرز",
     questions: [
       { id: "t1", text: "توفر منطقة مخصصة للفرز البصري عند مدخل الطوارئ والغسيل الكلوي" },
       { id: "t2", text: "توفر نموذج الفرز المعتمد" },
@@ -89,7 +125,7 @@ export const SECTIONS: InspectionSection[] = [
   },
   {
     id: "isolation",
-    title: "العزل (Isolation)",
+    title: "العزل",
     questions: [
       { id: "is1", text: "وجود غرف عزل (ضغط سلبي أو HEPA filter)" },
       { id: "is2", text: "توفر لوحات العزل (ملونة حسب النوع: تلامسي / هوائي / رذاذي)" },
@@ -124,7 +160,7 @@ export const SECTIONS: InspectionSection[] = [
   },
   {
     id: "medical_storage",
-    title: "المستودع الطبي (Medical Storage)",
+    title: "المستودع الطبي",
     questions: [
       { id: "ms1", text: "تهوية جيدة" },
       { id: "ms2", text: "مراقبة الحرارة (22–24°C) والرطوبة (<70%)" },
@@ -133,7 +169,7 @@ export const SECTIONS: InspectionSection[] = [
   },
   {
     id: "medical_waste",
-    title: "النفايات الطبية (Medical Waste)",
+    title: "النفايات الطبية",
     questions: [
       { id: "mw1", text: "توفر حاويات وأكياس ملونة" },
       { id: "mw2", text: "فصل النفايات حسب النوع" },
@@ -144,7 +180,7 @@ export const SECTIONS: InspectionSection[] = [
   },
   {
     id: "training",
-    title: "التدريب (Training)",
+    title: "التدريب",
     questions: [
       { id: "tr1", text: "تدريب على تطهير اليدين" },
       { id: "tr2", text: "التعامل مع الحالات التنفسية" },

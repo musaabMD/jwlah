@@ -1,3 +1,4 @@
+import { SECTIONS } from "./constants";
 import type { ReportMakerData } from "./report-maker-types";
 
 function truncLabel(s: string, max: number): string {
@@ -8,7 +9,8 @@ function truncLabel(s: string, max: number): string {
 
 export type ReportMakerPptSlideKind =
   | "cover"
-  | "checklist"
+  | "section_intro"
+  | "section_table"
   | "notes"
   | "item_photo"
   | "annex_photo"
@@ -20,6 +22,8 @@ export type ReportMakerPptSlide = {
   /** 1-based index (matches export order). */
   n: number;
   labelAr: string;
+  /** When `kind === "section_intro" | "section_table"`, matches `SECTIONS[].id`. */
+  sectionId?: string;
   itemId?: string;
   imageIndex?: number;
 };
@@ -34,7 +38,20 @@ export function buildReportMakerPptSlides(data: ReportMakerData): ReportMakerPpt
   };
 
   push({ id: "cover", kind: "cover", labelAr: "غلاف التقرير" });
-  push({ id: "checklist", kind: "checklist", labelAr: "قائمة التحقق" });
+  for (const sec of SECTIONS) {
+    push({
+      id: `section-intro:${sec.id}`,
+      kind: "section_intro",
+      sectionId: sec.id,
+      labelAr: `قسم: ${truncLabel(sec.title, 32)}`,
+    });
+    push({
+      id: `section-table:${sec.id}`,
+      kind: "section_table",
+      sectionId: sec.id,
+      labelAr: `جدول: ${truncLabel(sec.title, 36)}`,
+    });
+  }
   push({ id: "notes", kind: "notes", labelAr: "ملاحظات عامة" });
 
   for (const it of data.items) {
@@ -64,7 +81,7 @@ export function buildReportMakerPptSlides(data: ReportMakerData): ReportMakerPpt
 
 /** Slides actually written to the .pptx (for subtitle copy). */
 export function countReportMakerPptExportSlides(data: ReportMakerData): number {
-  let c = 2; // cover + checklist
+  let c = 1 + SECTIONS.length * 2; // cover + intro + table per section
   if (data.notes.trim()) c += 1;
   for (const it of data.items) c += it.images.length;
   c += data.images.length;

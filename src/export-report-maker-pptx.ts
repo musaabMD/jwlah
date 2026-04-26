@@ -1,10 +1,16 @@
 import pptxgen from "pptxgenjs";
-import { MHC_LOGO_PATH } from "./branding";
-import { calculateReportMakerScore, type ReportMakerData, safeReportMakerFileBase } from "./report-maker-types";
+import { REPORT_MAKER_TOUR_CLOSING_BG_PATH, REPORT_MAKER_TOUR_COVER_BG_PATH } from "./branding";
+import { buildReportMakerTourCoverLines } from "./report-maker-tour-cover-lines";
+import { SECTIONS } from "./constants";
+import { type ReportMakerData, safeReportMakerFileBase } from "./report-maker-types";
 import { dataUrlToPptxBase64, fetchPublicImageAsPptxBase64 } from "./export-helpers";
 import { PPTX_PARA_RTL } from "./pptx-rtl-opts";
 
 const ACCENT = "0f172a";
+/** Table header (matches inspection-style report tables). */
+const SECTION_TABLE_HEADER = "111C2C";
+/** Full-screen section title slide (matches inspection PPT section intros). */
+const SECTION_INTRO_BG = "111827";
 
 function gregorianSlashFromIso(iso: string): string {
   if (!iso?.trim()) return "—";
@@ -31,14 +37,62 @@ function addFooter(slide: PptxSlide, data: ReportMakerData): void {
   });
 }
 
+function addSectionTableFooter(slide: PptxSlide, data: ReportMakerData, sectionPct: number): void {
+  const line = [`${sectionPct}٪`, `${gregorianSlashFromIso(data.date)}م`, data.facility?.trim() || "—"].join("   •   ");
+  slide.addText(line, {
+    x: 0.35,
+    y: 5.38,
+    w: 9.3,
+    h: 0.22,
+    fontSize: 9,
+    color: "A1A1AA",
+    align: "right",
+    ...PPTX_PARA_RTL,
+  });
+}
+
+/** Date • facility (dim), as on dark section intro slides. */
+function addSectionIntroFooter(slide: PptxSlide, data: ReportMakerData): void {
+  const dateIso = data.date?.split("T")[0]?.trim() || "—";
+  const line = [dateIso, data.facility?.trim() || "—"].join("   •   ");
+  slide.addText(line, {
+    x: 0.35,
+    y: 5.38,
+    w: 9.3,
+    h: 0.22,
+    fontSize: 9,
+    color: "94A3B8",
+    align: "right",
+    ...PPTX_PARA_RTL,
+  });
+}
+
 function truncateCell(text: string, max: number): string {
   const t = text.trim();
   if (t.length <= max) return t;
   return `${t.slice(0, max - 1)}…`;
 }
 
+function truncateSectionTitle(text: string, max: number): string {
+  return truncateCell(text, max);
+}
+
+function sectionTableMetrics(
+  section: (typeof SECTIONS)[number],
+  itemById: Map<string, { checked: boolean }>,
+): { earned: number; total: number; percentage: number } {
+  let earned = 0;
+  let total = 0;
+  for (const q of section.questions) {
+    const it = itemById.get(q.id);
+    if (!it) continue;
+    total += 1;
+    if (it.checked) earned += 1;
+  }
+  return { earned, total, percentage: total === 0 ? 0 : Math.round((earned / total) * 100) };
+}
+
 export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<void> {
-  const { checked, total, percentage } = calculateReportMakerScore(raw);
   const pptx = new pptxgen();
   pptx.layout = "LAYOUT_16x9";
   pptx.rtlMode = true;
@@ -46,107 +100,171 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
   pptx.title = raw.title?.trim() || "تقرير";
   pptx.subject = "تقرير — قائمة تحقق (RTL)";
 
-  const logoB64 = await fetchPublicImageAsPptxBase64(MHC_LOGO_PATH);
+  const tourCoverB64 = await fetchPublicImageAsPptxBase64(REPORT_MAKER_TOUR_COVER_BG_PATH);
+  const tourClosingB64 = await fetchPublicImageAsPptxBase64(REPORT_MAKER_TOUR_CLOSING_BG_PATH);
+  const coverLines = buildReportMakerTourCoverLines(raw).join("\n");
+  const COVER_META_BAND_H = 1.48;
+  const COVER_META_FONT = 15;
+  const COVER_META_LINE_SPACING = 24;
+  const COVER_MASK_FILL = "0f172a";
 
   const cover = pptx.addSlide();
-  cover.background = { color: "1a3a5c" };
-  if (logoB64) {
-    cover.addImage({
-      data: logoB64,
-      x: 6.85,
-      y: 0.35,
-      w: 2.75,
-      h: 0.85,
+  if (tourCoverB64) {
+    cover.background = { data: tourCoverB64 };
+    cover.addShape(pptx.ShapeType.rect, {
+      x: 0.35,
+      y: 2.48,
+      w: 9.3,
+      h: COVER_META_BAND_H,
+      fill: { color: COVER_MASK_FILL, transparency: 38 },
+      line: { width: 0 },
+    });
+    cover.addText(coverLines, {
+      x: 0.4,
+      y: 2.5,
+      w: 9.2,
+      h: COVER_META_BAND_H - 0.04,
+      fontSize: COVER_META_FONT,
+      bold: true,
+      color: "FFFFFF",
+      align: "center",
+      valign: "middle",
+      fontFace: "Arial",
+      lineSpacing: COVER_META_LINE_SPACING,
+      margin: [4, 8, 4, 8],
+      ...PPTX_PARA_RTL,
+    });
+  } else {
+    cover.background = { color: "1a3a5c" };
+    cover.addText(coverLines, {
+      x: 0.5,
+      y: 2.15,
+      w: 9,
+      h: 2.35,
+      fontSize: COVER_META_FONT,
+      bold: true,
+      color: "FFFFFF",
+      align: "center",
+      valign: "middle",
+      fontFace: "Arial",
+      lineSpacing: COVER_META_LINE_SPACING,
+      ...PPTX_PARA_RTL,
     });
   }
-  cover.addText(raw.title || "تقرير", {
-    x: 0.5,
-    y: 1.35,
-    w: 9,
-    h: 0.9,
-    fontSize: 28,
-    bold: true,
-    color: "FFFFFF",
-    align: "center",
-    fontFace: "Arial",
-    ...PPTX_PARA_RTL,
-  });
-  const metaLines = [
-    raw.facility?.trim() ? `المنشأة: ${raw.facility.trim()}` : null,
-    raw.inspectors?.length ? `المكلفون: ${raw.inspectors.join("، ")}` : null,
-    `التاريخ: ${gregorianSlashFromIso(raw.date)}م`,
-    total > 0 ? `الإنجاز (جميع البنود): ${checked} / ${total}  •  ${percentage}٪` : "لا توجد بنود في القائمة",
-  ].filter(Boolean) as string[];
-  cover.addText(metaLines.join("\n"), {
-    x: 0.5,
-    y: 2.55,
-    w: 9,
-    h: 1.4,
-    fontSize: 16,
-    bold: true,
-    color: "E2E8F0",
-    align: "center",
-    valign: "middle",
-    fontFace: "Arial",
-    lineSpacing: 24,
-    ...PPTX_PARA_RTL,
-  });
-  addFooter(cover, raw);
 
-  const applicable = raw.items;
-  const tableSlide = pptx.addSlide();
-  tableSlide.background = { color: "FFFFFF" };
-  tableSlide.addShape(pptx.ShapeType.rect, {
-    x: 0,
-    y: 0,
-    w: 10,
-    h: 0.12,
-    fill: { color: ACCENT },
-    line: { color: ACCENT, width: 0 },
-  });
-  tableSlide.addText("قائمة التحقق والتقييم التلقائي", {
-    x: 0.4,
-    y: 0.22,
-    w: 9.2,
-    h: 0.42,
-    fontSize: 16,
+  const itemById = new Map(raw.items.map((it) => [it.id, it] as const));
+  const headerBase = {
     bold: true,
-    color: ACCENT,
-    align: "right",
-    ...PPTX_PARA_RTL,
-  });
-  tableSlide.addText(total > 0 ? `${checked} من ${total} مكتمل  •  ${percentage}٪` : "لا توجد بنود", {
-    x: 0.4,
-    y: 0.62,
-    w: 9.2,
-    h: 0.32,
     fontSize: 13,
-    color: "525252",
-    align: "right",
+    color: "FFFFFF" as const,
+    fill: { color: SECTION_TABLE_HEADER },
     ...PPTX_PARA_RTL,
-  });
-
-  const headerBase = { bold: true, fontSize: 11, color: "FFFFFF" as const, fill: { color: ACCENT }, ...PPTX_PARA_RTL };
+  };
   const cellBorder = { pt: 0.5 as const, color: "E5E5E5" };
 
-  const tableRows = [
+  const sectionScoreRow = (title: string, earned: number, tot: number, pct: number) => [
     [
-      { text: "البند", options: { ...headerBase, align: "right" as const } },
-      { text: "✓", options: { ...headerBase, align: "center" as const, w: 0.75 } },
-      { text: "ملاحظة", options: { ...headerBase, align: "right" as const } },
+      {
+        text: `${title}\nنتيجة القسم: ${earned}/${tot}  •  ${pct}٪`,
+        options: {
+          colspan: 3,
+          align: "right" as const,
+          valign: "middle" as const,
+          fill: { color: "F0F0F0" },
+          fontSize: 15,
+          bold: true,
+          color: "171717",
+          margin: [0.06, 0.1, 0.06, 0.1] as [number, number, number, number],
+          border: cellBorder,
+          ...PPTX_PARA_RTL,
+        },
+      },
     ],
-    ...(applicable.length > 0
-      ? applicable.map((it) => [
+  ];
+
+  for (const section of SECTIONS) {
+    const { earned, total: secTotal, percentage: secPct } = sectionTableMetrics(section, itemById);
+
+    const sectionIntro = pptx.addSlide();
+    sectionIntro.background = { color: SECTION_INTRO_BG };
+    sectionIntro.addText("قسم التقييم", {
+      x: 0.5,
+      y: 1.35,
+      w: 9,
+      h: 0.45,
+      fontSize: 14,
+      color: "94A3B8",
+      align: "right",
+      ...PPTX_PARA_RTL,
+    });
+    sectionIntro.addText(section.title, {
+      x: 0.5,
+      y: 1.85,
+      w: 9,
+      h: 1.35,
+      fontSize: 30,
+      bold: true,
+      color: "FFFFFF",
+      align: "right",
+      ...PPTX_PARA_RTL,
+    });
+    sectionIntro.addText(
+      secTotal > 0
+        ? `نتيجة القسم: ${earned} / ${secTotal}   •   ${secPct}٪`
+        : "نتيجة القسم: لا توجد بنود مُقيَّمة في هذا القسم",
+      {
+        x: 0.5,
+        y: 3.35,
+        w: 9,
+        h: 0.55,
+        fontSize: 20,
+        color: "E2E8F0",
+        align: "right",
+        ...PPTX_PARA_RTL,
+      },
+    );
+    addSectionIntroFooter(sectionIntro, raw);
+
+    const slide = pptx.addSlide();
+    slide.background = { color: "FFFFFF" };
+    slide.addShape(pptx.ShapeType.rect, {
+      x: 0,
+      y: 0,
+      w: 10,
+      h: 0.12,
+      fill: { color: SECTION_TABLE_HEADER },
+      line: { color: SECTION_TABLE_HEADER, width: 0 },
+    });
+    slide.addText(`جدول البنود — ${truncateSectionTitle(section.title, 48)}`, {
+      x: 0.4,
+      y: 0.22,
+      w: 9.2,
+      h: 0.4,
+      fontSize: 14,
+      bold: true,
+      color: SECTION_TABLE_HEADER,
+      align: "right",
+      ...PPTX_PARA_RTL,
+    });
+
+    const bodyRows = section.questions.flatMap((q) => {
+      const it = itemById.get(q.id);
+      if (!it) return [];
+      const note = it.note.trim() || "—";
+      const ans = it.checked ? "نعم" : "لا";
+      const ansColor = it.checked ? ("15803D" as const) : ("B91C1C" as const);
+      return [
+        [
           {
-            text: truncateCell(it.text, 420),
-            options: { fontSize: 10, align: "right" as const, valign: "middle" as const, border: cellBorder, ...PPTX_PARA_RTL },
+            text: truncateCell(it.text, 380),
+            options: { fontSize: 13, align: "right" as const, valign: "top" as const, border: cellBorder, ...PPTX_PARA_RTL },
           },
           {
-            text: it.checked ? "✓" : "—",
+            text: ans,
             options: {
               fontSize: 13,
               bold: true,
-              color: it.checked ? ("15803D" as const) : ("737373" as const),
+              color: ansColor,
               align: "center" as const,
               valign: "middle" as const,
               border: cellBorder,
@@ -154,33 +272,53 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
             },
           },
           {
-            text: truncateCell(it.note.trim() || "—", 220),
-            options: { fontSize: 10, align: "right" as const, valign: "middle" as const, border: cellBorder, ...PPTX_PARA_RTL },
-          },
-        ])
-      : [
-          [
-            {
-              text: "لا توجد بنود.",
-              options: { colspan: 3, fontSize: 14, align: "right" as const, color: "737373", border: cellBorder, ...PPTX_PARA_RTL },
+            text: truncateCell(note, 200),
+            options: {
+              fontSize: 12,
+              color: "525252",
+              align: "right" as const,
+              valign: "top" as const,
+              border: cellBorder,
+              ...PPTX_PARA_RTL,
             },
-          ],
-        ]),
-  ];
+          },
+        ],
+      ];
+    });
 
-  tableSlide.addTable(tableRows, {
-    x: 0.4,
-    y: 1.05,
-    w: 9.2,
-    colW: [5.85, 0.75, 2.6],
-    border: { pt: 0.5, color: "E5E5E5" },
-    fontSize: 12,
-    autoPage: true,
-    autoPageRepeatHeader: true,
-    autoPageHeaderRows: 1,
-    autoPageSlideStartY: 0.72,
-  });
-  addFooter(tableSlide, raw);
+    const tableRows = [
+      [
+        { text: "البند", options: { ...headerBase, align: "right" as const } },
+        { text: "التقييم", options: { ...headerBase, align: "center" as const } },
+        { text: "ملاحظة", options: { ...headerBase, align: "right" as const } },
+      ],
+      ...sectionScoreRow(section.title, earned, secTotal, secPct),
+      ...(bodyRows.length > 0
+        ? bodyRows
+        : [
+            [
+              {
+                text: "لا توجد بنود في هذا القسم.",
+                options: { colspan: 3, fontSize: 14, align: "right" as const, color: "737373", border: cellBorder, ...PPTX_PARA_RTL },
+              },
+            ],
+          ]),
+    ];
+
+    slide.addTable(tableRows, {
+      x: 0.4,
+      y: 0.72,
+      w: 9.2,
+      colW: [6.1, 1.15, 1.95],
+      border: { pt: 0.5, color: "E5E5E5" },
+      fontSize: 12,
+      autoPage: true,
+      autoPageRepeatHeader: true,
+      autoPageHeaderRows: 2,
+      autoPageSlideStartY: 0.72,
+    });
+    addSectionTableFooter(slide, raw, secPct);
+  }
 
   if (raw.notes.trim()) {
     const noteSlide = pptx.addSlide();
@@ -313,27 +451,43 @@ export async function downloadReportMakerPptx(raw: ReportMakerData): Promise<voi
   });
 
   const end = pptx.addSlide();
-  end.background = { color: "1e3a5f" };
+  if (tourClosingB64) {
+    end.background = { data: tourClosingB64 };
+    end.addShape(pptx.ShapeType.rect, {
+      x: 1.35,
+      y: 2.05,
+      w: 7.3,
+      h: 1.55,
+      fill: { color: "0f172a", transparency: 42 },
+      line: { width: 0 },
+    });
+  } else {
+    end.background = { color: "1a3a5c" };
+  }
   end.addText("شكراً", {
     x: 0.4,
-    y: 2.35,
+    y: 2.15,
     w: 9.2,
-    h: 0.75,
-    fontSize: 32,
+    h: 0.85,
+    fontSize: 36,
     bold: true,
     color: "FFFFFF",
     align: "center",
+    valign: "middle",
     fontFace: "Arial",
     ...PPTX_PARA_RTL,
   });
   end.addText("تجمع المدينة المنورة الصحي", {
     x: 0.4,
-    y: 3.2,
+    y: 2.95,
     w: 9.2,
-    h: 0.5,
-    fontSize: 14,
-    color: "E2E8F0",
+    h: 0.55,
+    fontSize: 15,
+    bold: true,
+    color: "F1F5F9",
     align: "center",
+    valign: "middle",
+    fontFace: "Arial",
     ...PPTX_PARA_RTL,
   });
   addFooter(end, raw);

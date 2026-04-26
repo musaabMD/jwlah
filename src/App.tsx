@@ -22,8 +22,26 @@ import {
   EllipsisVertical,
   ListChecks,
   ImagePlus,
+  ChevronDown,
 } from "lucide-react";
 import { INSPECTORS, HOSPITALS, SECTIONS } from "./constants";
+
+function parseReportMakerIsoDate(iso: string): { y: number; m: number; d: number } {
+  const part = typeof iso === "string" ? iso.split("T")[0] : "";
+  const [ys, ms, ds] = part.split("-");
+  const y = parseInt(ys ?? "", 10);
+  const m = parseInt(ms ?? "", 10);
+  const d = parseInt(ds ?? "", 10);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d) || m < 1 || m > 12 || d < 1) {
+    const n = new Date();
+    return { y: n.getFullYear(), m: n.getMonth() + 1, d: n.getDate() };
+  }
+  return { y, m, d };
+}
+
+function daysInMonthCount(y: number, m: number): number {
+  return new Date(y, m, 0).getDate();
+}
 import { InspectionData, ScoreValue } from "./types";
 import {
   calculateGlobalMetrics,
@@ -43,7 +61,9 @@ import { downloadInspectionPptx } from "./export-pptx";
 import { downloadReportMakerPptx } from "./export-report-maker-pptx";
 import { ReportMakerPptSlideReview } from "./ReportMakerPptSlideReview";
 import { ReportMakerChecklistSteps } from "./ReportMakerChecklistSteps";
+import { ReportMakerTourCoverHero } from "./ReportMakerTourCoverHero";
 import { downloadInspectionReportPdf, printInspectionReport } from "./pdf-export";
+import { buildReportMakerPptSlides } from "./report-maker-slide-plan";
 import {
   REPORT_MAKER_STORAGE_KEY,
   REPORT_MAKER_STORAGE_VERSION,
@@ -205,6 +225,10 @@ export default function App() {
   const [pptReviewAction, setPptReviewAction] = useState<"download" | "email" | null>(null);
   /** صانع التقرير: مراجعة وتعديل قبل تنزيل PPT */
   const [reportMakerPptReviewOpen, setReportMakerPptReviewOpen] = useState(false);
+  /** عند فتح المراجعة من القائمة: معرّف الشريحة المطلوبة أولاً (يُستهلك داخل المراجعة). */
+  const [reportMakerPptInitialSlideId, setReportMakerPptInitialSlideId] = useState<string | undefined>(undefined);
+  const [reportMakerInspectorsOpen, setReportMakerInspectorsOpen] = useState(false);
+  const reportMakerInspectorsRef = useRef<HTMLDivElement>(null);
   /** معالج الإعداد: 0 فريق، 1 منشأة، 2 بنود ثم بدء الجولة */
   const [setupWizardStep, setSetupWizardStep] = useState(persistedBoot.setupWizardStep);
   const [showSectionGrid, setShowSectionGrid] = useState(false);
@@ -256,7 +280,18 @@ export default function App() {
     if (step !== "report-maker") setReportMakerPptReviewOpen(false);
   }, [step]);
 
+  useEffect(() => {
+    if (!reportMakerInspectorsOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const el = reportMakerInspectorsRef.current;
+      if (el && !el.contains(e.target as Node)) setReportMakerInspectorsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [reportMakerInspectorsOpen]);
+
   const reportMakerScore = useMemo(() => calculateReportMakerScore(reportMakerData), [reportMakerData]);
+  const reportMakerPptSlidePlan = useMemo(() => buildReportMakerPptSlides(reportMakerData), [reportMakerData]);
   const reportMakerItemById = useMemo(
     () => new Map(reportMakerData.items.map((it) => [it.id, it] as const)),
     [reportMakerData.items],
@@ -536,7 +571,10 @@ export default function App() {
     }
   };
 
-  const closeReportMakerPptReview = () => setReportMakerPptReviewOpen(false);
+  const closeReportMakerPptReview = () => {
+    setReportMakerPptReviewOpen(false);
+    setReportMakerPptInitialSlideId(undefined);
+  };
 
   const confirmReportMakerPptExport = async () => {
     setReportMakerPptReviewOpen(false);
@@ -638,7 +676,9 @@ export default function App() {
         ? `${inspectionProgressPct}٪ · ${inspectionStepIndex + 1} من ${inspectionFlow.length}`
         : step === "report" && data.hospital
           ? data.hospital
-          : null;
+          : step === "report-maker" && reportMakerPptReviewOpen
+            ? "مراجعة الشرائح قبل التصدير"
+            : null;
 
   const canGoBackFromHeader = !showIntro && step !== "home";
   const goBackFromHeader = () => {
@@ -674,6 +714,10 @@ export default function App() {
       return;
     }
     if (step === "report-maker") {
+      if (reportMakerPptReviewOpen) {
+        closeReportMakerPptReview();
+        return;
+      }
       setStep("home");
       window.scrollTo(0, 0);
       return;
@@ -685,7 +729,7 @@ export default function App() {
     <div className="min-h-[100dvh] bg-zinc-50 text-zinc-900 overflow-x-hidden print:bg-white" dir="rtl">
       {!showIntro && step !== "presentation" && (
         <header className="sticky top-0 z-50 border-b border-zinc-200/70 bg-white/95 shadow-[0_1px_0_rgba(0,0,0,0.03)] backdrop-blur-md print:hidden">
-          <div className="mx-auto max-w-lg px-3 pt-2.5 sm:max-w-2xl sm:px-4 sm:pt-3">
+          <div className="mx-auto w-full max-w-2xl px-3 pt-2.5 sm:max-w-4xl sm:px-6 sm:pt-3 lg:max-w-6xl lg:px-8">
             <div className="flex items-start justify-between gap-2 sm:items-center">
               <div className="flex min-w-0 flex-1 items-center gap-2.5">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-white shadow-sm sm:h-9 sm:w-9">
@@ -856,7 +900,7 @@ export default function App() {
         </header>
       )}
 
-      <main className="mx-auto max-w-lg px-3 py-4 pb-28 print:max-w-none print:px-0 print:py-0 print:pb-0 sm:max-w-2xl sm:px-4 sm:py-5">
+      <main className="mx-auto w-full max-w-2xl px-3 py-4 pb-28 print:max-w-none print:px-0 print:py-0 print:pb-0 sm:max-w-4xl sm:px-6 sm:py-5 lg:max-w-6xl lg:px-8">
         <AnimatePresence mode="wait">
           {showIntro && (
             <motion.section
@@ -1153,21 +1197,82 @@ export default function App() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="space-y-4 pb-6"
+              className={
+                reportMakerPptReviewOpen
+                  ? "flex min-h-[calc(100dvh-6.5rem)] flex-col gap-0 sm:min-h-[calc(100dvh-5.75rem)]"
+                  : "space-y-4 pb-6"
+              }
             >
+              {reportMakerPptReviewOpen ? (
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+                  <div className="flex shrink-0 items-start justify-between gap-3 border-b border-zinc-100 px-3 py-3 sm:px-4">
+                    <div>
+                      <h2 id="rm-ppt-review-title" className="text-base font-bold text-zinc-900">
+                        مراجعة التقرير قبل التصدير
+                      </h2>
+                      <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
+                        معاينة شرائح PowerPoint — انتقل بين الشرائح وعدّل المحتوى أسفل كل معاينة، ثم أكّد التنزيل.
+                      </p>
+                      <p className="mt-2 text-[11px] font-semibold tabular-nums text-emerald-800">
+                        التقييم التلقائي:{" "}
+                        {reportMakerScore.total === 0
+                          ? "—"
+                          : `${reportMakerScore.percentage}٪ (${reportMakerScore.checked}/${reportMakerScore.total})`}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={closeReportMakerPptReview}
+                      className="shrink-0 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                    >
+                      رجوع إلى المحرر
+                    </button>
+                  </div>
+
+                  <div className="min-h-0 flex-1 overflow-hidden px-2 py-2 sm:px-4 sm:py-3">
+                    <ReportMakerPptSlideReview
+                      layout="page"
+                      data={reportMakerData}
+                      setData={setReportMakerData}
+                      initialSlideId={reportMakerPptInitialSlideId}
+                    />
+                  </div>
+
+                  <div className="flex shrink-0 flex-col gap-2 border-t border-zinc-100 bg-white px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end sm:px-4">
+                    <button
+                      type="button"
+                      onClick={closeReportMakerPptReview}
+                      disabled={exportBusy === "pptx"}
+                      className="min-h-11 rounded-xl border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 sm:min-w-[7rem]"
+                    >
+                      إلغاء
+                    </button>
+                    <button
+                      type="button"
+                      disabled={exportBusy === "pptx"}
+                      onClick={() => void confirmReportMakerPptExport()}
+                      className="min-h-11 rounded-xl bg-zinc-900 px-4 text-sm font-bold text-white shadow-sm hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[12rem]"
+                    >
+                      {exportBusy === "pptx" ? "جارٍ التنزيل…" : "تأكيد وتنزيل PowerPoint"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
               <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
                 <h2 className="text-sm font-semibold text-zinc-900">بيانات التقرير</h2>
                 <p className="mt-1 text-[11px] text-zinc-500">
-                  يظهر العنوان والمنشأة والأسماء والتاريخ على الغلاف وملف PowerPoint.
+                  غلاف «تقرير الجولة» يستخدم خلفية التجمع مع خمسة أسطر (منشأة، تاريخ، امتثال، فريق). حقل العنوان أدناه
+                  لتسمية الملف وخصائص المستند فقط.
                 </p>
                 <div className="mt-4 space-y-3">
-                  <label className="block text-[11px] font-semibold text-zinc-600">عنوان التقرير</label>
+                  <label className="block text-[11px] font-semibold text-zinc-600">تسمية الملف / عنوان المستند</label>
                   <input
                     type="text"
                     value={reportMakerData.title}
                     onChange={(e) => setReportMakerData((p) => ({ ...p, title: e.target.value }))}
                     className="w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-3 py-2.5 text-sm outline-none focus:border-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
-                    placeholder="مثال: زيارة تفتيشية"
+                    placeholder="مثال: زيارة تفتيشية — للأرشفة"
                   />
                   <label className="block text-[11px] font-semibold text-zinc-600">المنشأة (اختياري)</label>
                   <select
@@ -1183,47 +1288,162 @@ export default function App() {
                     ))}
                   </select>
                   <div>
-                    <label className="block text-[11px] font-semibold text-zinc-600">أسماء المكلفين (اختياري)</label>
-                    <p className="mb-2 mt-0.5 text-[10px] text-zinc-500">نفس قائمة فريق الجولة — يُدرَجون في التصدير.</p>
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      {INSPECTORS.map((inspector) => {
-                        const on = reportMakerData.inspectors.includes(inspector.name);
-                        return (
-                          <button
-                            key={inspector.id}
-                            type="button"
-                            onClick={() =>
-                              setReportMakerData((prev) => ({
-                                ...prev,
-                                inspectors: on
-                                  ? prev.inspectors.filter((n) => n !== inspector.name)
-                                  : [...prev.inspectors, inspector.name],
-                              }))
-                            }
-                            className={`flex items-center justify-between rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${
-                              on
-                                ? "border-2 border-zinc-900 bg-zinc-50 text-zinc-900"
-                                : "border border-zinc-200 bg-white text-zinc-800"
-                            }`}
-                          >
-                            <span>{inspector.name}</span>
-                            {on ? (
-                              <CheckCircle2 className="h-4 w-4 shrink-0 text-zinc-900" />
-                            ) : (
-                              <span className="h-4 w-4 shrink-0 rounded-full border border-zinc-300 bg-white" />
-                            )}
-                          </button>
-                        );
-                      })}
+                    <label className="block text-[11px] font-semibold text-zinc-600" htmlFor="rm-inspectors-trigger">
+                      أسماء المكلفين (اختياري)
+                    </label>
+                    <p className="mb-2 mt-0.5 text-[10px] text-zinc-500">قائمة منسدلة — اختر أكثر من اسم؛ يُدرَجون في غلاف التقرير والتصدير.</p>
+                    <div className="relative" ref={reportMakerInspectorsRef}>
+                      <button
+                        id="rm-inspectors-trigger"
+                        type="button"
+                        aria-expanded={reportMakerInspectorsOpen}
+                        aria-haspopup="listbox"
+                        onClick={() => setReportMakerInspectorsOpen((o) => !o)}
+                        className="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-zinc-50/50 px-3 py-2.5 text-start text-sm outline-none transition-colors hover:bg-white focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+                      >
+                        <span className={`min-w-0 flex-1 truncate ${reportMakerData.inspectors.length ? "text-zinc-900" : "text-zinc-400"}`}>
+                          {reportMakerData.inspectors.length
+                            ? reportMakerData.inspectors.join("، ")
+                            : "— اختر من القائمة —"}
+                        </span>
+                        <ChevronDown
+                          className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${reportMakerInspectorsOpen ? "rotate-180" : ""}`}
+                          aria-hidden
+                        />
+                      </button>
+                      {reportMakerInspectorsOpen ? (
+                        <div
+                          className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-zinc-200 bg-white py-1 shadow-lg"
+                          role="listbox"
+                          aria-multiselectable="true"
+                        >
+                          {INSPECTORS.map((inspector) => {
+                            const on = reportMakerData.inspectors.includes(inspector.name);
+                            return (
+                              <label
+                                key={inspector.id}
+                                className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-sm text-zinc-800 hover:bg-zinc-50"
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 shrink-0 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900/20"
+                                  checked={on}
+                                  onChange={() =>
+                                    setReportMakerData((prev) => ({
+                                      ...prev,
+                                      inspectors: on
+                                        ? prev.inspectors.filter((n) => n !== inspector.name)
+                                        : [...prev.inspectors, inspector.name],
+                                    }))
+                                  }
+                                />
+                                <span className="min-w-0 flex-1">{inspector.name}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
-                  <label className="block text-[11px] font-semibold text-zinc-600">التاريخ</label>
-                  <input
-                    type="date"
-                    value={reportMakerData.date}
-                    onChange={(e) => setReportMakerData((p) => ({ ...p, date: e.target.value }))}
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
-                  />
+                  <div>
+                    <span className="block text-[11px] font-semibold text-zinc-600">التاريخ</span>
+                    <p className="mt-0.5 text-[10px] text-zinc-500">يوم / شهر / سنة (قوائم منسدلة)</p>
+                    <div className="mt-2 grid grid-cols-3 gap-2" dir="rtl">
+                      {(() => {
+                        const { y, m, d } = parseReportMakerIsoDate(reportMakerData.date);
+                        const dim = daysInMonthCount(y, m);
+                        const setParts = (next: { y?: number; m?: number; d?: number }) => {
+                          setReportMakerData((p) => {
+                            const cur = parseReportMakerIsoDate(p.date);
+                            let yy = next.y ?? cur.y;
+                            let mm = next.m ?? cur.m;
+                            let dd = next.d ?? cur.d;
+                            const maxD = daysInMonthCount(yy, mm);
+                            if (dd > maxD) dd = maxD;
+                            const iso = `${String(yy).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+                            return { ...p, date: iso };
+                          });
+                        };
+                        const years = Array.from({ length: 18 }, (_, i) => 2018 + i);
+                        return (
+                          <>
+                            <div>
+                              <label className="mb-1 block text-[10px] font-medium text-zinc-500">السنة</label>
+                              <select
+                                value={y}
+                                onChange={(e) => setParts({ y: Number(e.target.value) })}
+                                className="w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-2 py-2 text-sm outline-none focus:border-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
+                              >
+                                {years.map((yy) => (
+                                  <option key={yy} value={yy}>
+                                    {yy}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-[10px] font-medium text-zinc-500">الشهر</label>
+                              <select
+                                value={m}
+                                onChange={(e) => setParts({ m: Number(e.target.value) })}
+                                className="w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-2 py-2 text-sm outline-none focus:border-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
+                              >
+                                {Array.from({ length: 12 }, (_, i) => i + 1).map((mm) => (
+                                  <option key={mm} value={mm}>
+                                    {mm}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-[10px] font-medium text-zinc-500">اليوم</label>
+                              <select
+                                value={d}
+                                onChange={(e) => setParts({ d: Number(e.target.value) })}
+                                className="w-full rounded-xl border border-zinc-200 bg-zinc-50/50 px-2 py-2 text-sm outline-none focus:border-zinc-900 focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
+                              >
+                                {Array.from({ length: dim }, (_, i) => i + 1).map((dd) => (
+                                  <option key={dd} value={dd}>
+                                    {dd}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-zinc-200 bg-zinc-50/40 p-4 sm:p-5">
+                <h2 className="text-sm font-semibold text-zinc-900">معاينة غلاف التقرير</h2>
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  هنا تظهر <strong>الشريحة الأولى</strong> فقط (16:9). باقي الشرائح — مقدّمة كل قسم، جداول البنود، الملاحظات، صور البنود والمرفقات، الختام — تظهر في شاشة{" "}
+                  <strong>مراجعة وتصدير PowerPoint</strong> بجانب القائمة (الزر أسفل الصفحة). يمكنك الانتقال مباشرة من القائمة التالية.
+                </p>
+                <div className="mx-auto mt-3 max-w-3xl">
+                  <ReportMakerTourCoverHero data={reportMakerData} />
+                </div>
+                <div className="mx-auto mt-4 max-w-3xl">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">ترتيب الشرائح في الملف</p>
+                  <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-zinc-200/80 bg-white/80 p-2 sm:max-h-none">
+                    {reportMakerPptSlidePlan.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => {
+                          setExportMsg(null);
+                          setReportMakerPptInitialSlideId(s.id);
+                          setReportMakerPptReviewOpen(true);
+                        }}
+                        className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-start text-[10px] font-medium text-zinc-800 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 sm:text-[11px]"
+                      >
+                        <span className="tabular-nums text-zinc-400">{s.n}.</span> {s.labelAr}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </section>
 
@@ -1309,6 +1529,7 @@ export default function App() {
                   disabled={exportBusy !== null}
                   onClick={() => {
                     setExportMsg(null);
+                    setReportMakerPptInitialSlideId(undefined);
                     setReportMakerPptReviewOpen(true);
                   }}
                   className="flex min-h-[2.75rem] items-center justify-center gap-2 rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-zinc-800 disabled:opacity-50"
@@ -1329,6 +1550,8 @@ export default function App() {
                   مسح وبدء جديد
                 </button>
               </div>
+                </>
+              )}
               {exportMsg && step === "report-maker" ? (
                 <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-800">{exportMsg}</p>
               ) : null}
@@ -1963,7 +2186,7 @@ export default function App() {
                     animate="center"
                     exit="exit"
                     transition={{ type: "spring", damping: 30, stiffness: 320 }}
-                    className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center"
+                    className="mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center lg:max-w-6xl"
                   >
                     {presIndex === 0 && (
                       <div className="text-center">
@@ -2069,7 +2292,7 @@ export default function App() {
 
       {!showIntro && step === "setup" && (
         <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200 bg-white pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] print:hidden">
-          <div className="mx-auto flex max-w-lg gap-2 px-3 sm:max-w-2xl sm:px-4">
+          <div className="mx-auto flex w-full max-w-2xl gap-2 px-3 sm:max-w-4xl sm:px-6 lg:max-w-6xl lg:px-8">
             {setupWizardStep > 0 ? (
               <button
                 type="button"
@@ -2111,7 +2334,7 @@ export default function App() {
 
       {!showIntro && step === "inspection" && flowStep && (
         <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-200 bg-white pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] print:hidden">
-          <div className="mx-auto flex max-w-lg gap-2 px-3 sm:max-w-2xl sm:px-4">
+          <div className="mx-auto flex w-full max-w-2xl gap-2 px-3 sm:max-w-4xl sm:px-6 lg:max-w-6xl lg:px-8">
             <button
               type="button"
               onClick={() => {
@@ -2144,7 +2367,7 @@ export default function App() {
             </button>
           </div>
           {flowStep.kind === "question" && !canProceedStep && (
-            <p className="mx-auto mt-2 max-w-lg px-3 text-center text-sm font-medium text-red-600 sm:max-w-2xl sm:px-4">
+            <p className="mx-auto mt-2 w-full max-w-2xl px-3 text-center text-sm font-medium text-red-600 sm:max-w-4xl sm:px-6 lg:max-w-6xl lg:px-8">
               اختر نعم أو لا أو N/A للمتابعة
             </p>
           )}
@@ -2164,7 +2387,7 @@ export default function App() {
             onClick={closePptReview}
             aria-label="إغلاق المراجعة"
           />
-          <div className="relative flex min-h-0 max-h-[min(92dvh,880px)] w-full max-w-2xl flex-col rounded-t-2xl border border-zinc-200 bg-white shadow-2xl sm:max-h-[85dvh] sm:rounded-2xl">
+          <div className="relative flex min-h-0 max-h-[min(92dvh,880px)] w-full max-w-4xl flex-col rounded-t-2xl border border-zinc-200 bg-white shadow-2xl sm:max-h-[85dvh] sm:rounded-2xl lg:max-w-6xl">
             <div className="flex shrink-0 items-start justify-between gap-3 border-b border-zinc-100 px-4 py-3 sm:px-5">
               <div>
                 <h2 id="ppt-review-title" className="text-base font-bold text-zinc-900">
@@ -2298,66 +2521,6 @@ export default function App() {
         </div>
       )}
 
-      {reportMakerPptReviewOpen && (
-        <div
-          className="fixed inset-0 z-[125] flex items-end justify-center sm:items-center sm:p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="rm-ppt-review-title"
-        >
-          <button
-            type="button"
-            className="absolute inset-0 bg-zinc-950/55 backdrop-blur-[2px]"
-            onClick={closeReportMakerPptReview}
-            aria-label="إغلاق المراجعة"
-          />
-          <div className="relative flex min-h-0 max-h-[min(92dvh,920px)] w-full max-w-4xl flex-col rounded-t-2xl border border-zinc-200 bg-white shadow-2xl sm:max-h-[90dvh] sm:rounded-2xl">
-            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-zinc-100 px-4 py-3 sm:px-5">
-              <div>
-                <h2 id="rm-ppt-review-title" className="text-base font-bold text-zinc-900">
-                  مراجعة التقرير قبل التصدير
-                </h2>
-                <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">
-                  معاينة شرائح PowerPoint — انتقل بين الشرائح وعدّل المحتوى أسفل كل معاينة، ثم أكّد التنزيل.
-                </p>
-                <p className="mt-2 text-[11px] font-semibold tabular-nums text-emerald-800">
-                  التقييم التلقائي: {reportMakerScore.total === 0 ? "—" : `${reportMakerScore.percentage}٪ (${reportMakerScore.checked}/${reportMakerScore.total})`}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={closeReportMakerPptReview}
-                className="shrink-0 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-              >
-                إغلاق
-              </button>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5">
-              <ReportMakerPptSlideReview data={reportMakerData} setData={setReportMakerData} />
-            </div>
-
-            <div className="flex shrink-0 flex-col gap-2 border-t border-zinc-100 bg-white px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end sm:px-5">
-              <button
-                type="button"
-                onClick={closeReportMakerPptReview}
-                disabled={exportBusy === "pptx"}
-                className="min-h-11 rounded-xl border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 sm:min-w-[7rem]"
-              >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                disabled={exportBusy === "pptx"}
-                onClick={() => void confirmReportMakerPptExport()}
-                className="min-h-11 rounded-xl bg-zinc-900 px-4 text-sm font-bold text-white shadow-sm hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-[12rem]"
-              >
-                {exportBusy === "pptx" ? "جارٍ التنزيل…" : "تأكيد وتنزيل PowerPoint"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

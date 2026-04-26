@@ -30,6 +30,37 @@ export const HOSPITALS = [
 
 export const SECTIONS: InspectionSection[] = [
   {
+    id: "ipc_bundle_compliance_audit",
+    title: "✅ IPC Bundle Compliance Audit (Improved + Auto-Scoring)",
+    questions: [
+      { id: "ipc_vae_1", text: "🌬️ VAE: Is the head of bed maintained at 30–45° (unless contraindicated)?" },
+      { id: "ipc_vae_2", text: "🌬️ VAE: Is there documented daily sedation interruption or readiness-to-wean assessment?" },
+      { id: "ipc_vae_3", text: "🌬️ VAE: Is oral care with antiseptic (e.g., chlorhexidine) performed as per protocol?" },
+      {
+        id: "ipc_vae_4",
+        text: "🌬️ VAE: Are ventilator circuits handled using aseptic technique and not routinely changed?",
+      },
+      { id: "ipc_vae_5", text: "🌬️ VAE: Is there a daily documented assessment for extubation readiness?" },
+      { id: "ipc_cauti_1", text: "🚽 CAUTI: Is there a documented appropriate indication for the catheter?" },
+      { id: "ipc_cauti_2", text: "🚽 CAUTI: Was aseptic technique used during insertion (check record or observe)?" },
+      { id: "ipc_cauti_3", text: "🚽 CAUTI: Is a closed drainage system intact with no breaks/leaks?" },
+      { id: "ipc_cauti_4", text: "🚽 CAUTI: Is the urine bag positioned below bladder level and not touching the floor?" },
+      { id: "ipc_cauti_5", text: "🚽 CAUTI: Is there a daily documented review for catheter necessity/removal?" },
+      {
+        id: "ipc_clabsi_1",
+        text: "💉 CLABSI: Was hand hygiene performed before any line handling (observed or documented)?",
+      },
+      {
+        id: "ipc_clabsi_2",
+        text: "💉 CLABSI: Were maximal sterile barrier precautions used during insertion (cap, mask, gown, gloves, drape)?",
+      },
+      { id: "ipc_clabsi_3", text: "💉 CLABSI: Was chlorhexidine used for skin antisepsis at insertion site?" },
+      { id: "ipc_clabsi_4", text: "💉 CLABSI: Is the dressing clean, dry, intact, and within change date?" },
+      { id: "ipc_clabsi_5", text: "💉 CLABSI: Is there a daily documented review of line necessity?" },
+      { id: "ipc_optional_1", text: "⭐ Optional: Are bundle checklists completed by staff consistently?" },
+    ],
+  },
+  {
     id: "triage",
     title: "الفرز (Triage)",
     questions: [

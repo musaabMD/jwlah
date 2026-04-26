@@ -42,6 +42,12 @@ import { downloadInspectionReportPdf, printInspectionReport } from "./pdf-export
 const SETUP_STEP_COUNT = 5;
 const DRAFT_STORAGE_KEY = "tour_draft";
 const DRAFT_STORAGE_VERSION = 2 as const;
+const DRAFT_EMAIL_RECIPIENTS = [
+  "aabdulrhmnsommanalayde@gmail.com",
+  "episurv2026@gmail.com",
+  "adool01046@gmail.com",
+  "welynfc1411@gmail.com",
+] as const;
 
 type AppStep = "home" | "setup" | "inspection" | "report" | "presentation" | "history";
 
@@ -71,6 +77,14 @@ function mergeDraftIntoBase(base: InspectionData, d: Partial<InspectionData>): I
     ...d,
     skippedQuestionIds: Array.isArray(d.skippedQuestionIds) ? d.skippedQuestionIds : base.skippedQuestionIds ?? [],
   };
+}
+
+function hasProgressData(d: InspectionData): boolean {
+  const hasScores = Object.keys(d.scores ?? {}).length > 0;
+  const hasItemNotes = Object.values(d.itemNotes ?? {}).some((v) => Boolean(v?.trim()));
+  const hasSectionNotes = Object.values(d.sectionNotes ?? {}).some((v) => Boolean(v?.trim()));
+  const hasImages = Object.values(d.sectionImages ?? {}).some((items) => Array.isArray(items) && items.length > 0);
+  return Boolean(d.hospital?.trim()) || d.inspectors.length > 0 || hasScores || hasItemNotes || hasSectionNotes || hasImages;
 }
 
 function loadSessionFromStorage(): {
@@ -134,7 +148,6 @@ const SETUP_WIZARD_STEPS = [
   { label: "الفريق" },
   { label: "المنشأة" },
   { label: "البريد" },
-  { label: "التاريخ" },
   { label: "البنود" },
 ] as const;
 
@@ -151,7 +164,6 @@ function todayLocalISO(): string {
   return localISODate(d);
 }
 
-/** Dates shown as tappable chips (no native date picker / dropdown). */
 const PRES_VARIANTS = {
   enter: (dir: number) => ({
     opacity: 0,
@@ -166,21 +178,6 @@ const PRES_VARIANTS = {
   }),
 };
 
-function buildSetupDateStrip(): { iso: string; weekday: string; dayMonth: string }[] {
-  const rows: { iso: string; weekday: string; dayMonth: string }[] = [];
-  const base = new Date();
-  base.setHours(12, 0, 0, 0);
-  for (let delta = -7; delta <= 60; delta++) {
-    const d = new Date(base);
-    d.setDate(base.getDate() + delta);
-    const iso = localISODate(d);
-    const weekday = new Intl.DateTimeFormat("ar-SA", { weekday: "short" }).format(d);
-    const dayMonth = new Intl.DateTimeFormat("ar-SA", { day: "numeric", month: "short" }).format(d);
-    rows.push({ iso, weekday, dayMonth });
-  }
-  return rows;
-}
-
 export default function App() {
   const [persistedBoot] = useState(loadSessionFromStorage);
   const [showIntro, setShowIntro] = useState(persistedBoot.showIntro);
@@ -190,7 +187,7 @@ export default function App() {
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [homeMsg, setHomeMsg] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState<"pdf" | "pptx" | null>(null);
-  /** معالج الإعداد: 0 فريق، 1 منشأة، 2 تاريخ، 3 بنود ثم بدء الجولة */
+  /** معالج الإعداد: 0 فريق، 1 منشأة، 2 بريد، 3 بنود ثم بدء الجولة */
   const [setupWizardStep, setSetupWizardStep] = useState(persistedBoot.setupWizardStep);
 
   const [history, setHistory] = useState<unknown[]>(() => {
@@ -199,9 +196,9 @@ export default function App() {
   });
 
   const [data, setData] = useState<InspectionData>(persistedBoot.data);
+  const hasDraftToResume = useMemo(() => hasProgressData(data), [data]);
 
   const reportRef = useRef<HTMLDivElement>(null);
-  const setupDateStripScrollRef = useRef<HTMLDivElement>(null);
   const presDirRef = useRef(1);
   const headerNavRef = useRef<HTMLDivElement>(null);
   const [headerNavOpen, setHeaderNavOpen] = useState(false);
@@ -212,7 +209,6 @@ export default function App() {
   const questionSlides = useMemo(() => flattenQuestionSlides(data), [data.skippedQuestionIds]);
   const presTotal = questionSlides.length + 2;
   const inspectionFlow = useMemo(() => buildInspectionFlow(data), [data.skippedQuestionIds]);
-  const setupDateStrip = useMemo(() => buildSetupDateStrip(), []);
 
   useEffect(() => {
     if (step !== "report") return;
@@ -251,13 +247,14 @@ export default function App() {
   }, [data, step, setupWizardStep, inspectionStepIndex, showIntro]);
 
   useEffect(() => {
-    if (step !== "setup" || setupWizardStep !== 3) return;
-    const t = window.setTimeout(() => {
-      const el = setupDateStripScrollRef.current?.querySelector<HTMLElement>(`[data-date-iso="${todayLocalISO()}"]`);
-      el?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-    }, 100);
-    return () => window.clearTimeout(t);
-  }, [step, setupWizardStep]);
+    if (step !== "setup") return;
+    const iso = todayLocalISO();
+    const day = new Intl.DateTimeFormat("ar-SA", { weekday: "long" }).format(new Date(iso + "T12:00:00"));
+    setData((prev) => {
+      if (prev.date === iso && prev.day === day) return prev;
+      return { ...prev, date: iso, day };
+    });
+  }, [step]);
 
   useEffect(() => {
     if (step !== "presentation") return;
@@ -362,6 +359,35 @@ export default function App() {
     }
   };
 
+  const openDraftEmailComposer = () => {
+    const recipients = DRAFT_EMAIL_RECIPIENTS.join(",");
+    const subject = `مسودة جولة غير مكتملة - ${data.hospital || "زيارة ميدانية"}`;
+    const body =
+      `تم إغلاق النموذج قبل الاكتمال.\n\n` +
+      `المنشأة: ${data.hospital || "غير محدد"}\n` +
+      `التاريخ: ${data.date || "غير محدد"}\n` +
+      `المفتشون: ${data.inspectors.length ? data.inspectors.join("، ") : "غير محدد"}\n` +
+      `نسبة الإنجاز الحالية: ${inspectionProgressPct}%\n` +
+      `الامتثال الحالي: ${totalScoreInfo.percentage}%\n\n` +
+      `ملاحظة: أرفق ملف PowerPoint الذي تم تنزيله من التطبيق قبل الإرسال.`;
+    window.location.href = `mailto:${recipients}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  };
+
+  const downloadPptxAndPrepareDraftEmail = async () => {
+    setExportMsg(null);
+    setExportBusy("pptx");
+    try {
+      await downloadInspectionPptx(data);
+      openDraftEmailComposer();
+      setExportMsg("تم تنزيل ملف PowerPoint وفتح البريد الجاهز لإرساله إلى جميع المستلمين.");
+    } catch (e) {
+      console.error(e);
+      setExportMsg("تعذر إنشاء ملف PowerPoint للمسودة.");
+    } finally {
+      setExportBusy(null);
+    }
+  };
+
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>, sectionId: string) => {
     const files = e.target.files;
     if (!files) return;
@@ -411,7 +437,7 @@ export default function App() {
         : setupWizardStep === 2
           ? true
           : setupWizardStep === 3
-            ? Boolean(data.date)
+            ? true
             : false;
   const canProceedStep = flowStep ? isFlowStepComplete(flowStep, data) : false;
   const finishInspection =
@@ -424,6 +450,12 @@ export default function App() {
     if (s === "na") return "N/A";
     return "—";
   };
+  const complianceInterpretation = useMemo(() => {
+    const pct = totalScoreInfo.percentage;
+    if (pct >= 90) return { label: "Good compliance", icon: "✅", tone: "text-emerald-700 bg-emerald-50 border-emerald-200" };
+    if (pct >= 80) return { label: "Acceptable", icon: "⚠️", tone: "text-amber-700 bg-amber-50 border-amber-200" };
+    return { label: "Poor (action required)", icon: "❌", tone: "text-red-700 bg-red-50 border-red-200" };
+  }, [totalScoreInfo.percentage]);
   const historyStats = useMemo(() => {
     const tours = history as Array<{ totalScore?: number; scores?: Record<string, ScoreValue> }>;
     const count = tours.length;
@@ -765,6 +797,31 @@ export default function App() {
               <section className="rounded-xl border border-zinc-200 bg-white p-4 sm:p-5">
                 <h2 className="text-base font-semibold">اختر نموذج الجولة</h2>
                 <p className="mt-1 text-[12px] text-zinc-500">اختر النموذج المتاح، وبقية النماذج قريبًا.</p>
+                {hasDraftToResume ? (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <p className="text-[12px] font-semibold text-amber-900">تم العثور على مسودة محفوظة على هذا الجهاز.</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHomeMsg(null);
+                          setStep("setup");
+                        }}
+                        className="rounded-lg bg-zinc-900 px-3 py-1.5 text-[11px] font-semibold text-white"
+                      >
+                        استئناف المسودة
+                      </button>
+                      <button
+                        type="button"
+                        disabled={exportBusy !== null}
+                        onClick={downloadPptxAndPrepareDraftEmail}
+                        className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-800 disabled:opacity-60"
+                      >
+                        {exportBusy === "pptx" ? "..." : "إرسال نسخة PPT للمسودة"}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {[
                     { id: "preventive", label: "الطب الوقائي", action: "open" as const },
@@ -796,6 +853,7 @@ export default function App() {
                 </div>
               </section>
               {homeMsg && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{homeMsg}</p>}
+              {exportMsg && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{exportMsg}</p>}
             </motion.div>
           )}
 
@@ -1050,52 +1108,6 @@ export default function App() {
 
               {setupWizardStep === 3 && (
                 <section className="rounded-xl border border-zinc-200 bg-white p-4">
-                  <h2 className="mb-1 text-sm font-semibold">التاريخ</h2>
-                  <p className="mb-4 text-[11px] text-zinc-500">اختر يوم الزيارة</p>
-                  <div
-                    ref={setupDateStripScrollRef}
-                    className="-mx-1 flex snap-x snap-mandatory gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]"
-                  >
-                    {setupDateStrip.map(({ iso, weekday, dayMonth }) => {
-                      const on = data.date === iso;
-                      const isToday = iso === todayLocalISO();
-                      return (
-                        <button
-                          key={iso}
-                          type="button"
-                          data-date-iso={iso}
-                          onClick={() =>
-                            setData((prev) => ({
-                              ...prev,
-                              date: iso,
-                              day: new Intl.DateTimeFormat("ar-SA", { weekday: "long" }).format(new Date(iso + "T12:00:00")),
-                            }))
-                          }
-                          className={`relative snap-start shrink-0 rounded-xl border px-3 py-2.5 text-center transition-colors ${
-                            on
-                              ? "border-2 border-zinc-900 bg-zinc-50 text-zinc-900"
-                              : "border border-zinc-200 bg-white text-zinc-800"
-                          }`}
-                        >
-                          {isToday ? (
-                            <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 rounded bg-zinc-900 px-1.5 py-px text-[8px] font-bold text-white">
-                              اليوم
-                            </span>
-                          ) : null}
-                          <span className={`block text-[10px] font-medium ${on ? "text-zinc-600" : "text-zinc-500"}`}>{weekday}</span>
-                          <span className="mt-0.5 block text-sm font-semibold tabular-nums">{dayMonth}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {data.date ? (
-                    <p className="mt-3 rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2 text-center text-xs text-zinc-600">{data.day}</p>
-                  ) : null}
-                </section>
-              )}
-
-              {setupWizardStep === 4 && (
-                <section className="rounded-xl border border-zinc-200 bg-white p-4">
                   <h2 className="mb-1 text-sm font-semibold">بنود التقييم</h2>
                   <p className="mb-3 text-[11px] text-zinc-500">ألغِ تحديد ما لا يخص هذه الزيارة</p>
                   <div className="space-y-3">
@@ -1204,23 +1216,38 @@ export default function App() {
                     </option>
                   ))}
                 </select>
-                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {activeSectionSummaries.map((row) => (
-                    <div
+                    <button
                       key={row.section.id}
-                      className={`rounded-lg border px-2 py-1.5 text-[11px] ${
+                      type="button"
+                      onClick={() => {
+                        if (row.firstStepIndex < 0) return;
+                        setInspectionStepIndex(row.firstStepIndex);
+                        window.scrollTo(0, 0);
+                      }}
+                      className={`w-full rounded-lg border px-2.5 py-2 text-right text-[11px] transition-colors ${
                         flowStep?.sectionId === row.section.id
                           ? "border-zinc-900 bg-zinc-900 text-white"
                           : row.complete
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                            : "border-zinc-200 bg-zinc-50 text-zinc-700"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+                            : "border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
                       }`}
+                      aria-current={flowStep?.sectionId === row.section.id ? "true" : undefined}
+                      aria-label={`الانتقال إلى قسم ${row.section.title}`}
                     >
-                      <p className="line-clamp-1 font-semibold">{row.section.title}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="line-clamp-1 font-semibold">{row.section.title}</p>
+                        {flowStep?.sectionId === row.section.id ? (
+                          <span className="rounded-md bg-white/20 px-1.5 py-0.5 text-[10px] font-bold">الحالي</span>
+                        ) : row.complete ? (
+                          <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">مكتمل</span>
+                        ) : null}
+                      </div>
                       <p className="mt-0.5 tabular-nums">
                         {row.answered}/{row.total}
                       </p>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -1370,6 +1397,15 @@ export default function App() {
                 <button
                   type="button"
                   disabled={exportBusy !== null}
+                  onClick={downloadPptxAndPrepareDraftEmail}
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-60"
+                >
+                  <Mail className="h-3.5 w-3.5" />
+                  إرسال PPT عبر البريد
+                </button>
+                <button
+                  type="button"
+                  disabled={exportBusy !== null}
                   onClick={downloadReport}
                   className="flex items-center justify-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold"
                 >
@@ -1416,6 +1452,15 @@ export default function App() {
                     <p className="text-[11px] text-zinc-500">نسبة الامتثال</p>
                   </div>
                 </div>
+                <div data-pdf-chunk className="mb-6 rounded-xl border border-zinc-200 bg-zinc-50 p-3 sm:p-4">
+                  <p className="text-xs font-semibold text-zinc-800">IPC Bundle Compliance Audit - Auto-Scoring</p>
+                  <p className="mt-1 text-[11px] text-zinc-600">Yes = 1 | No = 0 | N/A (exclude)</p>
+                  <p className="mt-1 text-[11px] text-zinc-600">Compliance % = (Total Yes ÷ Applicable Items) × 100</p>
+                  <div className={`mt-3 inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${complianceInterpretation.tone}`}>
+                    <span>{complianceInterpretation.icon}</span>
+                    <span>{complianceInterpretation.label}</span>
+                  </div>
+                </div>
 
                 <div data-pdf-chunk className="mb-8 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                   {activeSections.map((s) => {
@@ -1450,6 +1495,13 @@ export default function App() {
                       >
                         فتح البريد (ملخص نصي)
                       </a>
+                      <button
+                        type="button"
+                        onClick={downloadPptxAndPrepareDraftEmail}
+                        className="mt-2 mr-2 inline-flex rounded-md border border-zinc-300 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700"
+                      >
+                        إرسال PPT للمستلمين المعتمدين
+                      </button>
                     </div>
                   </div>
                 ) : null}
@@ -1678,7 +1730,7 @@ export default function App() {
                 السابق
               </button>
             ) : null}
-            {setupWizardStep < 4 ? (
+            {setupWizardStep < 3 ? (
               <button
                 type="button"
                 disabled={!canSetupNext}
